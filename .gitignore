@@ -1,0 +1,25 @@
+.DS_Store
+.idea/
+.ipynb_checkpoints/
+Data_exploration.ipynb
+Novelty comparison.ipynb
+RL_loss_log
+__pycache__/
+accuracy_RL_loss_log
+critic_loss_log
+figures/
+data/
+generator_loss_log
+mol_visualization.ipynb
+outfile
+report/
+reward_net_on_original_data
+structures.sdf
+structures_ALL.sdf
+test_loss_log
+train_loss_log
+weights/
+weights_log
+
+
+
