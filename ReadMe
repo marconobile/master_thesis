@@ -1,4 +1,4 @@
-# Master thesis project
+## Master thesis project
 Master thesis project on molecule generation using RNNs and GCNs in the W-GAN framework
 Visualisation of generated samples:
 ![screenshot-mols.png](https://i.postimg.cc/Y0pYfCRv/screenshot-mols.png)
