@@ -1,0 +1,10 @@
+# https://pytorch.org/get-started/previous-versions/
+conda install pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.7 -c pytorch -c nvidia                                   
+
+https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html
+pip install torch_geometric 
+
+pip install rdkit
+
+# https://pypi.org/project/torch-sparse/
+conda install pytorch-sparse -c pyg

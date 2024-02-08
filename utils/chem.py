@@ -17,13 +17,15 @@ except ImportError:
 
 args = Args()
 
-# bond maps:
-if args.ZINC_dataset == True:
-    BOND_MAP = {
-        0: rdc.rdchem.BondType.SINGLE,
-        1: rdc.rdchem.BondType.DOUBLE,
-        2: rdc.rdchem.BondType.TRIPLE,
-    }
+if args.ZINC_filtered == False:
+    BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
+                1:rdc.rdchem.BondType.DOUBLE,
+                2:rdc.rdchem.BondType.TRIPLE}
+else:
+    BOND_MAP = {0:rdc.rdchem.BondType.SINGLE,
+                1:rdc.rdchem.BondType.DOUBLE,
+                2:rdc.rdchem.BondType.TRIPLE,
+                3:rdc.rdchem.BondType.AROMATIC}
 
     SYMBOL_TO_NUM = {'C': 0,
                      'O': 1,

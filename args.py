@@ -15,18 +15,19 @@ class Args():
 
     def __init__(self):
         self.ZINC_dataset = True
+        self.ZINC_filtered = True
         if self.ZINC_dataset == True:
-            self.max_num_node = 38
+            if self.ZINC_filtered:
+                self.max_num_node = 36
+                self.edge_feature_dims = 5
+
+            else:
+                self.max_num_node = 36
+                self.edge_feature_dims = 4
+
             self.max_prev_node = self.max_num_node - 1
             self.node_feature_dims = 9
-            self.edge_feature_dims = 4
 
         # supervised training params
-        self.supervised = True  # if False Graph-Based WGAN is executed
-        self.test_set = True
-
-        # WGAN params
-        if self.supervised == False:
-            self.graphRNN_epoch = 100
-            self.generate_train_set = True
-
+        self.supervised = True
+        self.test_set = False

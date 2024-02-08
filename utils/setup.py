@@ -28,7 +28,7 @@ def setup():
     train_log = logging.getLogger('train_loss_log')
     test_log = logging.getLogger('test_loss_log')
 
-    manualSeed = 23742
+    manualSeed = 123
     np.random.seed(manualSeed)
     random.seed(manualSeed)
     torch.manual_seed(manualSeed)
@@ -41,7 +41,7 @@ def setup():
         torch.cuda.manual_seed_all(manualSeed)
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.deterministic = False
 
     return device, cuda, train_log, test_log
 

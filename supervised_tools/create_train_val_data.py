@@ -11,12 +11,13 @@ from args import Args
 def process_subset(subset, max_num_node, max_prev_node):
     '''
     :param subset: dataset for training or dataset for testing
+    :param max_num_node: max num of nodes in the set of graphs
+    :param max_prev_node: max_num_node - 1
     :return: Graph_sequence_sampler_pytorch data object
     '''
 
     G_list = []  # list of undirected networkx graphs
-    node_attr_list = []
-
+    node_attr_list = [] # list of node matrices
     for g in subset:
         node_attr_list.append(g.x)  # node matrix
         nxG = to_networkx(g)
@@ -33,8 +34,11 @@ def process_subset(subset, max_num_node, max_prev_node):
 
 
 def create_train_val_dataloaders(dataset, max_num_node, max_prev_node):
-    '''for supervised training
-    takes as input a list of pyg obs, max number of nodes of the loaded graphs, max_prev_node = (max number of nodes-1)
+    '''
+    for supervised training takes as input:
+    - dataset: a list of pyg Data obs,
+    - max number of nodes of the loaded graphs,
+    - max_prev_node = (max number of nodes-1)
     '''
     train_set = process_subset(dataset, max_num_node, max_prev_node)
     train_dataset_loader = DataLoader(train_set, batch_size=32, shuffle=True)
@@ -46,6 +50,8 @@ def create_train_val_dataloaders(dataset, max_num_node, max_prev_node):
 #######################################
 
 def get_log_weights(dataset, args):
+    # repeating the pipeline used to pack train data
+    # to compute loss weights
     node_feature_dims_ = args.node_feature_dims
 
     data = process_subset_weights(dataset, max_num_node=args.max_num_node, max_prev_node=args.max_prev_node)

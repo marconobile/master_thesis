@@ -55,7 +55,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output,
         x = torch.index_select(x_unsorted_for_nn, 0, sort_index)  # ([bs, max_seq_l, 8*4])
         y = torch.index_select(y_unsorted_for_nn, 0, sort_index)
         x_nodes = torch.index_select(x_nodes_unsorted, 0, sort_index)  # ([bs, max_seq_l, node_f])
-        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # HERE WE GOT NODE TARGETS!
+        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # NODE TARGETS
         y_reshape = torch.nn.utils.rnn.pack_padded_sequence(y, y_len, batch_first=True).data
         idx = [i for i in range(y_reshape.size(0) - 1, -1, -1)]
         idx = torch.LongTensor(idx)
@@ -101,7 +101,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output,
 
         abs_ = absence_net(output_x, pack=True, input_len=output_y_len)
 
-        y_pred = output(output_x, pack=True, input_len=output_y_len)  # atm dim 5, should be 4??
+        y_pred = output(output_x, pack=True, input_len=output_y_len)
 
         #####################################################
         #############       OUTPUT LAYERS       #############
@@ -221,7 +221,7 @@ def test_rnn_single_epoch(rnn, output, data_loader_, node_weights, edge_weights,
         x = torch.index_select(x_unsorted_for_nn, 0, sort_index)  # ([bs, max_seq_l, 8*4])
         y = torch.index_select(y_unsorted_for_nn, 0, sort_index)
         x_nodes = torch.index_select(x_nodes_unsorted, 0, sort_index)  # ([bs, max_seq_l, node_f])
-        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # HERE WE GOT NODE TARGETS!
+        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # NODE TARGETS
         y_reshape = torch.nn.utils.rnn.pack_padded_sequence(y, y_len, batch_first=True).data
         idx = [i for i in range(y_reshape.size(0) - 1, -1, -1)]
         idx = torch.LongTensor(idx)
@@ -267,7 +267,7 @@ def test_rnn_single_epoch(rnn, output, data_loader_, node_weights, edge_weights,
 
         abs_ = absence_net(output_x, pack=True, input_len=output_y_len)
 
-        y_pred = output(output_x, pack=True, input_len=output_y_len)  # atm dim 5, should be 4??
+        y_pred = output(output_x, pack=True, input_len=output_y_len)
 
         #####################################################
         #############       OUTPUT LAYERS       #############
@@ -321,8 +321,8 @@ def test_rnn_single_epoch(rnn, output, data_loader_, node_weights, edge_weights,
         node_loss = F.nll_loss(node_prediction, indices_nodes, reduction='mean',
                                weight=node_weights.to(torch.float32).to(device))
 
+        # no backward step
         loss = edge_loss + node_loss + abs_loss
-
         loss_sum += loss.data
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data

@@ -79,7 +79,8 @@ def main():
     '''
 
     cwd = os.getcwd()
-    with open(cwd + '/PYG_ZINC/molecules/test.pickle', 'rb') as fp: # train or test accordingly
+    # repeat for train.pickle and for test.pickle
+    with open(cwd + '/PYG_ZINC/molecules/test.pickle', 'rb') as fp:
         mols = pickle.load(fp)  # molecules defined as list
         # eg:
         # {'num_atom': 33,
@@ -117,7 +118,8 @@ def main():
         ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
         mols_data_list.append(numpy_to_rdkit_(ef_temp, obs.x, sanitize=False))
 
-    with open('ZINC_mols_test', 'wb') as fp: # train or test accordingly
+	# ZINC_mols_train or ZINC_mols_test accordingly
+    with open('ZINC_mols_test', 'wb') as fp: 
         pickle.dump(mols_data_list, fp)
 
 

@@ -6,14 +6,21 @@ from supervised_tools.supervised_train_loop import train_rnn_epoch, test_rnn_sin
 from supervised_tools.generate_single_obs import generate_single_obs
 from supervised_tools.supervised_model import get_generator
 from args import Args
+import pickle
 
 
 def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, test_set):
+
+    '''
+    dataset: list of pyg Data objects
+    '''
+
+
     print("Starting supervised training...")
     args = Args()
     max_num_node = args.max_num_node
     max_prev_node = args.max_prev_node
-    LR = 5e-3
+    LR = 5e-4
 
     train_dataset_loader, _ = create_train_val_dataloaders(dataset, max_num_node,
                                                            max_prev_node)
@@ -50,8 +57,8 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
     print('Nets structures loaded correctly! Training... ')
 
     epoch = 1  # starting epoch
-    max_epoch = 301
-    patience = 50
+    max_epoch = 3001
+    patience = 100
     counter_test = 0
 
     while epoch <= max_epoch:
@@ -89,7 +96,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
             output.eval()
             absence_net.eval()
 
-            n_of_graph_to_be_generated = 6400
+            n_of_graph_to_be_generated = 1600
             print(f'Generating {n_of_graph_to_be_generated} graphs for epoch', epoch)
 
             to_draw = []

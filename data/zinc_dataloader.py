@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch_sparse import coalesce
 from torch_geometric.data import Data
+from args import Args
+
 
 try:
     import rdkit
@@ -17,9 +19,10 @@ except ImportError:
     rdkit = None
 
 
+# todo https://github.com/JiaxuanYou/graph-generation/blob/3444b8ad2fd7ecb6ade45086b4c75f8e2e9f29d1/data.py#L160
 def load_zinc(zinc_mols):
     '''
-    Takes as input a list of molecules (either ../data/ZINC_mols_train or ZINC_mols_test) and
+    Takes as input a list of molecules objs (either ../data/ZINC_mols_train or ZINC_mols_test) and
     returns a list of PyG observations already one-hot encoded
     '''
 
@@ -33,9 +36,17 @@ def load_zinc(zinc_mols):
              'I': 7,
              'P': 8}
 
-    bonds = {BT.SINGLE: 0,
-             BT.DOUBLE: 1,
-             BT.TRIPLE: 2}
+    args = Args()
+
+    if args.ZINC_filtered == False:
+        bonds = {BT.SINGLE: 0,
+                 BT.DOUBLE: 1,
+                 BT.TRIPLE: 2}
+    else:
+        bonds = {BT.SINGLE: 0,
+                 BT.DOUBLE: 1,
+                 BT.TRIPLE: 2,
+                 BT.AROMATIC: 3}
 
     data_list = []
 

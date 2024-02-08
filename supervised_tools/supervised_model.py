@@ -4,18 +4,19 @@ import torch
 
 def get_generator():
     args = Args()
-    num_layers = 1
+    num_layers = 2
 
     # NODE LEVEL AND ABSENCE NET embeddings and hidden sizes
-    embedding_size_rnn = 64
-    hidden_size_rnn = 64
+    embedding_size_rnn = 256
+    hidden_size_rnn = 256
 
     # EDGE LEVEL embeddings and hidden sizes
-    embedding_size_rnn_output = 64
-    hidden_size_rnn_output = 64
-    out_edge_level = 64
+    embedding_size_rnn_output = 128
+    hidden_size_rnn_output = 128
+    out_edge_level = hidden_size_rnn_output
 
-    rnn = GRU_plain(input_size=args.node_feature_dims + args.edge_feature_dims * args.max_prev_node,
+    rnn = GRU_plain(#input_size=args.node_feature_dims + args.edge_feature_dims * args.max_prev_node,
+                    input_size=args.node_feature_dims + args.edge_feature_dims * 36, 
                     embedding_size=embedding_size_rnn,
                     hidden_size=hidden_size_rnn, num_layers=num_layers, has_input=True,
                     has_output=True, output_size=hidden_size_rnn_output, node_lvl=True,

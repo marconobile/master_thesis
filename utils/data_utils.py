@@ -15,7 +15,7 @@ def mols_txt(epoch, mols_, smiles_, smiles_list):
 
     valid_smiles = []
     for i in range(len(val_score_list)):
-        if (val_score_list[i] == True):  # and (novel_score_list[i] == True): # get all valids
+        if (val_score_list[i] == True):
             valid_smiles.append(smiles_[i])
 
     valid_smiles = list(valid_smiles)
@@ -76,7 +76,6 @@ def mols_smiles_plots(list_of_pygeom_data, name):
             idxs_non_SanitizeMols.append(idx)
 
     smiles_ = [i for j, i in enumerate(smiles_) if j not in idxs_non_SanitizeMols]
-
     plot_rdkit_svg_grid(mols_for_txt, mols_per_row=5, filename=name)
 
     return mols_for_txt, smiles_
@@ -192,12 +191,19 @@ def encode_adj(adj, original, max_prev_node, args):
 
 class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
     '''
-    max_num_node : max number of possible nodes in a graph
-    max_prev_node : max previous node that looks back (to lock back at)
     returns : dictionary containing input/output nodes, input/output edges
     '''
 
     def __init__(self, Graph_list, node_attr_list, adj_all, max_num_node, max_prev_node):
+
+        '''
+        Graph_list: list of undirected networkx graphs
+        node_attr_list: list of node matrices
+        adj_all: list of A(s) with edge features as elements a_ij [NxNxEf]
+        max_num_node : max number of possible nodes in a graph
+        max_prev_node : max previous node that looks back (to lock back at)
+        '''
+
         self.adj_all = adj_all  # list of multidim np.arrays (As) already in edge_feature form [V, V , node_f]
         self.len_all = []  # V for each G
         self.node_attr_list = node_attr_list
