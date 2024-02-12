@@ -15,6 +15,9 @@ from utils.setup import setup
 import torch
 print(torch.__version__)
 
+from torch_lr_finder import LRFinder
+import matplotlib.pyplot as plt
+
 
 def mols_from_file(pathfile: str, drop_none: bool = False):
     '''
@@ -451,124 +454,72 @@ def fit_batch(data, rnn, output):
     loss = edge_loss + node_loss
     return loss, edge_loss, node_loss
 
+@torch.no_grad()
+def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, ):
 
-def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
-    # initialize hidden state
-    rnn.hidden = rnn.init_hidden(test_batch_size).to(
-        device)  # init_hidden_rand
-    # create node level token
-    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims),
-                        requires_grad=False).to(device)
+    rnn.eval()    
+    output.eval()
+    test_batch_size=1    
+    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # init_hidden_rand
+
+    # SOS token with carbon
+    init_atom = torch.zeros(node_feature_dims)
+    init_atom[-1] = 1 # last entry active defines carbon
+    x_step = torch.cat((init_atom, torch.ones(max_prev_node * edge_feature_dims)), -1)
+    x_step = (x_step[None, None]).to(device)
+
     # initialize empty lists for Data() object
-    x_list = []
-    edg_attr_list = []
-    edg_idx_list = []
-
-    # Node RNN for-loop
-    for i in range(max_num_node):
+    x_list, edg_attr_list, edg_idx_list = [], [], []    
+    for i in range(max_num_node): # Node RNN for-loop
         h, node_prediction = rnn(x_step)
-
-        # arg-max + discretization
-        idx_node_arg_max = torch.argmax(node_prediction, dim=-1).item()
-        node_prediction_argmax = torch.zeros_like(
-            node_prediction).to(device)  # torch.Size([1, 1, 4])
-        node_prediction_argmax[:, :, idx_node_arg_max] = 1
-
-        # get discretized node-prediction and append it to list
-        node_prediction_argmax_squeezed = node_prediction_argmax.squeeze(
-            0).to(device)
-        x_list.append(node_prediction_argmax_squeezed)
+        node_prediction_argmax = torch.nn.functional.one_hot(node_prediction.argmax(), num_classes=node_feature_dims)
+        x_list.append(node_prediction_argmax)
 
         # reset and update input for next iteration
-        x_step = torch.zeros((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims),
-                             requires_grad=False).to(device)
+        x_step = torch.zeros((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device)
         x_step[:, :, :node_feature_dims] = node_prediction_argmax.data
-        # .data: we only want to get the contenet of the tensor
 
         # init Edge/Abs lvl
-        hidden_null_1 = torch.zeros(
-            (rnn.num_layers - 1, h.size(0), h.size(2)), requires_grad=True).to(device)
-        # hidden_null_2 = torch.zeros((rnn.num_layers - 1, h.size(0), h.size(2)), requires_grad=True).to(device)
-        h_to_pass = h.permute(1, 0, 2).to(device)
-        output.hidden = torch.cat((h_to_pass, hidden_null_1), dim=0).to(device)
-        # absence_net.hidden = torch.cat((h_to_pass, hidden_null_2), dim=0).to(device)
+        hidden_null = torch.zeros((rnn.num_layers - 1, h.size(0), h.size(2))).to(device)
+        output.hidden = torch.cat((h.permute(1, 0, 2), hidden_null), dim=0).to(device)
 
-        # token Edge lvl - randn best result
-        output_x_step = torch.randn(
-            test_batch_size, 1, 5, requires_grad=False).to(device)
-        # token abs lvl - 0s as SOS
-        # abs_x_step = torch.zeros(test_batch_size, 1, 5, requires_grad=False).to(device)
-
+        # token Edge lvl
+        output_x_step = torch.ones(test_batch_size, 1, edge_feature_dims).to(device)
+        
         # Edge/Abs RNN for-loop
-        edge_rnn_step = 0
-        # this list is used to create edg_idx
-        idx = [k for k in range(i, -1, -1)]
+        edge_rnn_step = 0        
+        idx = [k for k in range(i, -1, -1)] # this list is used to create edg_idx
         for j in range(min(max_prev_node, i + 1)):
             # prediction for each and every prev node
             output_y_pred_step_out = output(output_x_step)
-            # abs_ = absence_net(abs_x_step)
-            # abs_ = F.sigmoid(abs_)
-            # abs_ = output_y_pred_step_out[:,:,0].item()
-
-            idx_edge_arg_max = torch.argmax(
-                output_y_pred_step_out, dim=-1).item()
-            output_x_step_argmax = torch.zeros_like(
-                output_y_pred_step_out).to(device)  # torch.Size([1, 1, 4])
-            output_x_step_argmax[:, :, idx_edge_arg_max] = 1
-
-            # # discretization of abs prediction
-            # if abs_.item() >= 1.:
-            #     temp_0 = torch.zeros_like(output_x_step_argmax, requires_grad=True).to(device)
-            #     output_x_step_argmax = torch.mul(output_x_step_argmax,
-            #                                      temp_0)  # this kills gradients, thus params not updated!
-            #     t = torch.Tensor([1]).to(device)
-            #     abs_out = (abs_ >= t).float()
-            #     output_x_step_argmax = torch.cat((abs_out, output_x_step_argmax), dim=-1)
-            # else:
-            #     t = torch.Tensor([1]).to(device)
-            #     abs_out = (abs_ > t).float()
-            #     output_x_step_argmax = torch.cat((abs_out, output_x_step_argmax), dim=-1)
-
-            # # reset and update input for next iteration
-            # output_x_step = output_x_step_argmax  # abs_out.data
-            # abs_x_step = output_x_step_argmax
+            output_x_step_argmax = torch.nn.functional.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)            
 
             if torch.argmax(output_x_step_argmax, dim=-1) != 0:
                 if i + 1 <= max_prev_node:
                     # select [1:]
-                    idx_select = torch.tensor(
-                        [1, 2, 3, 4], dtype=torch.long, requires_grad=False).to(device)
-                    edge_to_append = torch.index_select(
-                        output_x_step_argmax, dim=2, index=idx_select).to(device)
+                    idx_select = torch.tensor([1, 2, 3, 4], dtype=torch.long).to(device)
+                    edge_to_append = torch.index_select(output_x_step_argmax, dim=2, index=idx_select).to(device)
 
                     # Duplicate
-                    edges_to_append_doubled = torch.cat((edge_to_append.squeeze(), edge_to_append.squeeze()), dim=0).to(
-                        device)
+                    edges_to_append_doubled = torch.cat((edge_to_append.squeeze(), edge_to_append.squeeze()), dim=0).to(device)
 
                     # reshape to (2x4)
-                    edges_to_append_resh = torch.reshape(
-                        edges_to_append_doubled, (2, 4)).to(device)
+                    edges_to_append_resh = torch.reshape(edges_to_append_doubled, (2, 4)).to(device)
 
                     # Append to edg_attr_list
                     edg_attr_list.append(edges_to_append_resh)
 
                     # Edge_index creation
-                    edg_idx_list.append(torch.tensor(
-                        [i + 1, idx[j]], requires_grad=False))
-                    edg_idx_list.append(torch.tensor(
-                        [idx[j], i + 1], requires_grad=False))
+                    edg_idx_list.append(torch.tensor([i + 1, idx[j]]))
+                    edg_idx_list.append(torch.tensor([idx[j], i + 1]))
 
             # Define next time-step input
-            x_step[:, :, 4 * j + node_feature_dims + j: 4 * (j + 1) + node_feature_dims + (
-                j + 1)] = output_x_step_argmax.data
+            x_step[:, :, 4 * j + node_feature_dims + j: 4 * (j + 1) + node_feature_dims + (j + 1)] = output_x_step_argmax.data
             edge_rnn_step = j
 
-        node_to_break, edges_to_break = torch.split(
-            x_step, [node_feature_dims, max_prev_node * 5], dim=2)
-        edges_to_break_temp = torch.reshape(
-            edges_to_break, (edges_to_break.shape[0], max_prev_node, 5)).to(device)
-        edges_to_break_uptillnow = edges_to_break_temp[0,
-                                                       :edge_rnn_step + 1, :].to(device)
+        node_to_break, edges_to_break = torch.split(x_step, [node_feature_dims, max_prev_node * edge_feature_dims], dim=2)
+        edges_to_break_temp = torch.reshape(edges_to_break, (edges_to_break.shape[0], max_prev_node, edge_feature_dims)).to(device)
+        edges_to_break_uptillnow = edges_to_break_temp[0,:edge_rnn_step + 1, :].to(device)
         break_ = True
         for row in edges_to_break_uptillnow:
             if torch.argmax(row).item() != 0:
@@ -592,18 +543,14 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
         edge_attr_ = torch.stack(edg_attr_list, dim=0).to(device)
 
         # Reshape to (2*E,4)
-        edge_attr = torch.reshape(edge_attr_, (edge_attr_.shape[0] * edge_attr_.shape[1], edge_attr_.shape[-1])).to(
-            device)
-
+        edge_attr = torch.reshape(edge_attr_, (edge_attr_.shape[0] * edge_attr_.shape[1], edge_attr_.shape[-1])).to(device)
     else:
         # print('disconnected nodes case')
-        data = Data(x=x.to(torch.float32).to(device))
-        return data
+        return Data(x=x.to(torch.float32)).to(device)
 
-    data = Data(x=x.to(torch.float32).to(device), edge_index=edge_idx.to(torch.long).to(device),
-                edge_attr=edge_attr.to(torch.float32).to(device))
-
-    return data
+    return Data(x=x.to(torch.float32), 
+                edge_index=edge_idx.to(torch.long), 
+                edge_attr=edge_attr.to(torch.float32)).to(device)
 
 
 def save_smiles(smiles, path, filename, ext='.txt'):
@@ -659,8 +606,41 @@ def get_generator():
 # guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/guacamol2_molgpt.smiles"
 guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 guac_mols = mols_from_file(guacm_smiles, True)
-atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
+# atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
+atom2num = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
+nweights = {
+'C': 0.03238897867833534,
+'Br': 14.044943820224718,
+'N': 0.21620219229022983,
+'O': 0.2177273617975571,
+'S': 1.6680567139282736,
+'Cl': 2.872737719046251,
+'F': 1.754693805930865,
+'P': 37.735849056603776,
+'I': 100.0,
+'B': 416.6666666666667,
+'Si': 454.54545454545456,
+'Se': 833.3333333333334}
+
+bweights = {
+BT.SINGLE: 4.663287337775892,
+BT.AROMATIC: 4.77780803722868,
+BT.DOUBLE: 34.74514436607484,
+BT.TRIPLE: 969.9321047526673
+}
+
+nweights_list = []
+for k in atom2num:
+    nweights_list.append(nweights[k])    
+
+num2atom = {v:k for k,v in atom2num.items()}
+print(atom2num)
 bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
+
+bweights_list = []
+for k in bond2num:
+    bweights_list.append(bweights[k])    
+
 num2bond = {v: k for k, v in bond2num.items()}
 
 data = rdkit2pyg([guac_mols[0]])  # HERE
@@ -669,14 +649,14 @@ device, cuda, train_log, test_log = setup()
 max_num_node = 88
 node_feature_dims = 12
 edge_feature_dims = 5
-max_prev_node = max_num_node - 1
-LR = 2e-3
-wd = 5e-3
+max_prev_node = 16 # max_num_node - 1
+LR = 3e-3
+wd = 6e-3
 
-train_dataset_loader, _ = create_train_val_dataloaders(
-    data, max_num_node, max_prev_node)
-node_weights, edge_weights = torch.ones(
-    (node_feature_dims)), torch.ones((edge_feature_dims))
+train_dataset_loader, _ = create_train_val_dataloaders(data, max_num_node, max_prev_node)
+node_weights = torch.tensor((nweights_list))
+edge_weights = torch.cat((torch.tensor([0.]),torch.tensor((bweights_list))), -1) #torch.tensor((bweights_list))
+
 
 rnn, output = get_generator()
 optimizer_rnn = torch.optim.AdamW(
@@ -696,16 +676,13 @@ max_epoch = 1000
 # patience = 100
 counter_test = 0
 
-# from torch_lr_finder import LRFinder
-# import matplotlib.pyplot as plt
+
 # scheRNN = torch.optim.lr_scheduler.ExponentialLR(optimizer_rnn, 1.1)
 # scheOUT = torch.optim.lr_scheduler.ExponentialLR(optimizer_output, 1.1)
-
-scheduler1 = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-
-lrrnn = []
-lrout = []
+# scheduler1 = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+# scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+# lrrnn = []
+# lrout = []
 while epoch <= max_epoch:
 
     loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
@@ -743,7 +720,7 @@ def generate_mols(N):
     to_draw = []
     for idx in range(N):
         print(f"{idx+1}/{N}", end='\r')
-        obs = generate_single_obs(rnn, output, device, test_batch_size=1,
+        obs = generate_single_obs(rnn, output, device, 
                                     max_num_node=max_num_node,
                                     max_prev_node=max_prev_node)
         to_draw.append(obs)

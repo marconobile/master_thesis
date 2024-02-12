@@ -155,38 +155,75 @@ def to_undirected(graph):
     return graph.to_undirected(as_view=True)
 
 
-def encode_adj(adj, original, max_prev_node, edge_feature_dims):
+# def encode_adj(adj, original, max_prev_node, edge_feature_dims):
+#     '''
+#     :param adj: A of current g with edge features as els : (V, V, 4)
+#     :param original: plain A of current g (without edge features: a binary matrix)
+#     :param max_prev_node: number of nodes of current graph - 1
+#     :return: encoded structure for the edges
+#     '''
+#     n = original.shape[0]
+#     temp = np.zeros((n, max_prev_node, edge_feature_dims))
+
+#     original_tril = np.tril(original, k=-1)  # lower tri of original A
+#     original_tril_idx = np.nonzero(original_tril)
+
+#     # begin by setting all as absent
+#     for r in range(temp.shape[0]):
+#         for c in range(temp.shape[1]):
+#             temp[r, c, 0] = 1
+
+#     for index in range(len(original_tril_idx[0])):
+#         i = original_tril_idx[0][index]
+#         j = original_tril_idx[1][index]
+#         temp[i - 1, j, :] = np.concatenate((np.array([0.]), adj[i, j, :]), 0)
+#         # [i - 1, j ]  since we drop first row of A in the encoding, we need to 'move up' every row-idx
+
+#     adj_output = np.zeros((n, max_prev_node, edge_feature_dims))
+
+#     # flip
+#     for i in range(0, n):
+#         adj_output[i, :i + 1, :] = np.flip(temp[i, :i + 1, :], 0)
+
+#     return adj_output
+
+def encode_adj(adj, max_prev_node, edge_feature_dims):
     '''
-    :param adj: A of current g with edge features as els : (V, V, 4)
-    :param original: plain A of current g (without edge features: a binary matrix)
-    :param max_prev_node: number of nodes of current graph - 1
-    :return: encoded structure for the edges
+    :param adj: n*n, rows means time step, while columns are input dimension
+    :param max_degree: we want to keep row number, but truncate column numbers
+    :return:
     '''
+    # pick up lower tri
+    adj = np.tril(adj, k=-1)
+    n = adj.shape[0]
+    adj = adj[1:n, 0:n-1]
 
-    n = original.shape[0] - 1  # N - 1 of the current graph
-    temp = np.zeros((n, max_prev_node, edge_feature_dims))
-
-    original_tril = np.tril(original, k=-1)  # lower tri of original A
-    original_tril_idx = np.nonzero(original_tril)
-
+    # use max_prev_node to truncate
+    # note: now adj is a (n-1)*(n-1) matrix
+    adj_output = np.zeros((adj.shape[0], max_prev_node, edge_feature_dims))
     # begin by setting all as absent
-    for r in range(temp.shape[0]):
-        for c in range(temp.shape[1]):
-            temp[r, c, 0] = 1
+    adj_output[:, :, 0] = 1
 
-    for index in range(len(original_tril_idx[0])):
-        i = original_tril_idx[0][index]
-        j = original_tril_idx[1][index]
-        temp[i - 1, j, :] = np.concatenate((np.array([0.]), adj[i, j, :]), 0)
-        # [i - 1, j ]  since we drop first row of A in the encoding, we need to 'move up' every row-idx
+    for i in range(adj.shape[0]):
+        input_start = max(0, i - max_prev_node + 1)
+        input_end = i + 1
+        output_start = max_prev_node + input_start - input_end
+        output_end = max_prev_node
+        to_be_cat = adj[i, input_start:input_end, :]
+        to_be_cat = np.concatenate((np.zeros((to_be_cat.shape[0], 1)), to_be_cat), 1)
+        zero_rows = np.all(to_be_cat == 0, axis=1)
 
-    adj_output = np.zeros((n, max_prev_node, edge_feature_dims))
-
-    # flip
-    for i in range(0, n):
-        adj_output[i, :i + 1, :] = np.flip(temp[i, :i + 1, :], 0)
-
+        # Identify the first element of those rows and set them to 1
+        to_be_cat[zero_rows, 0] = 1
+        
+        adj_output[i, output_start:output_end, :] = to_be_cat
+        # if to_be_cat.sum() == 0:
+        #     adj_output[i, output_start:output_end, :] = np.concatenate((np.ones((to_be_cat.shape[0], 1)), to_be_cat), 1)
+        # else:
+        #     adj_output[i, output_start:output_end, :] = np.concatenate((np.zeros((to_be_cat.shape[0], 1)), to_be_cat), 1)
+        adj_output[i,:] = adj_output[i,:][::-1] # reverse order
     return adj_output
+
 
 
 class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
@@ -205,34 +242,26 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
         '''
 
         self.adj_all = adj_all  # list of multidim np.arrays (As) already in edge_feature form [V, V , node_f]
-        self.len_all = []  # V for each G
         self.node_attr_list = node_attr_list
         self.graph_list = Graph_list  # list of undirected nx graphs
-        for G in Graph_list:
-            self.len_all.append(G.number_of_nodes())  # timesteps of node rnn for each G
-        self.max_num_node = max_num_node
-        self.max_prev_node = max_prev_node
+        self.len_all = [G.number_of_nodes() for G in Graph_list]  # V for each G, timesteps of node rnn for each G            
+        self.max_num_node, self.max_prev_node = max_num_node, max_prev_node        
+        self.ef, self.nf = 5, 12
 
-        self.edge_feature_dims = 5
-        self.node_feature_dims = 12
-
-    def __len__(self):
-        return len(self.adj_all)
+    def __len__(self): return len(self.adj_all)
 
     def __getitem__(self, idx):
+        # containers:
+        x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.ef))
+        y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.ef))
+        
         # edge encoding:
-        adj_copy = np.asarray(self.adj_all[idx]).copy()
-        adj_copy = np.squeeze(adj_copy)  # adj_copy had bs as first dim
-        x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
-        y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
+        adj_copy = np.squeeze(np.asarray(self.adj_all[idx]).copy()) # adj_copy had bs as first dim
+        adj_encoded = encode_adj(adj=adj_copy, max_prev_node=self.max_prev_node, edge_feature_dims=self.ef)
 
-        original_a = np.asarray(nx.adjacency_matrix(self.graph_list[idx]).todense())  # A without edge features of the current g
-        # original_a = np.asarray(nx.from_numpy_array(self.graph_list[idx]))  # A without edge features of the current g
-        adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, edge_feature_dims = self.edge_feature_dims)
-
-        x_batch[0, :, :] = 1
+        x_batch[0, :, :] = 1 # SOS token
         x_batch[1:adj_encoded.shape[0] + 1, :] = adj_encoded
-        y_batch[0:adj_encoded.shape[0], :] = adj_encoded
+        y_batch[:adj_encoded.shape[0], :] = adj_encoded
 
         for r in range(y_batch.shape[0]):
             for c in range(y_batch.shape[1]):
@@ -241,8 +270,8 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
 
         # node encoding:
         node_attr_list_copy = np.asarray(self.node_attr_list[idx]).copy()
-        x_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
-        y_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
+        x_node_attr = np.zeros((self.max_num_node, self.nf))
+        y_node_attr = np.zeros((self.max_num_node, self.nf))
 
         # input nodes:
         x_node_attr[0, :] = 1
