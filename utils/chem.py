@@ -17,27 +17,33 @@ except ImportError:
 
 args = Args()
 
-if args.ZINC_filtered == False:
-    BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
-                1:rdc.rdchem.BondType.DOUBLE,
-                2:rdc.rdchem.BondType.TRIPLE}
-else:
-    BOND_MAP = {0:rdc.rdchem.BondType.SINGLE,
-                1:rdc.rdchem.BondType.DOUBLE,
-                2:rdc.rdchem.BondType.TRIPLE,
-                3:rdc.rdchem.BondType.AROMATIC}
+# if args.ZINC_filtered == False:
+#     BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
+#                 1:rdc.rdchem.BondType.DOUBLE,
+#                 2:rdc.rdchem.BondType.TRIPLE}
+# else:
 
-    SYMBOL_TO_NUM = {'C': 0,
-                     'O': 1,
-                     'N': 2,
-                     'F': 3,
-                     'S': 4,
-                     'Cl': 5,
-                     'Br': 6,
-                     'I': 7,
-                     'P': 8
-                     }
-    NUM_TO_SYMBOL = {v: k for k, v in SYMBOL_TO_NUM.items()}
+# if args.ZINC_filtered == False:
+#     BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
+#                 1:rdc.rdchem.BondType.DOUBLE,
+#                 2:rdc.rdchem.BondType.TRIPLE}
+# else:
+BOND_MAP = {0:rdc.rdchem.BondType.SINGLE,
+            1:rdc.rdchem.BondType.DOUBLE,
+            2:rdc.rdchem.BondType.TRIPLE,
+            3:rdc.rdchem.BondType.AROMATIC}
+
+SYMBOL_TO_NUM = {'C': 0,
+                    'O': 1,
+                    'N': 2,
+                    'F': 3,
+                    'S': 4,
+                    'Cl': 5,
+                    'Br': 6,
+                    'I': 7,
+                    'P': 8
+                    }
+NUM_TO_SYMBOL = {v: k for k, v in SYMBOL_TO_NUM.items()}
 
 
 def numpy_to_rdkit(adj, nf, ef, sanitize=False):

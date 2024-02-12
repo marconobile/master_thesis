@@ -38,15 +38,15 @@ def load_zinc(zinc_mols):
 
     args = Args()
 
-    if args.ZINC_filtered == False:
-        bonds = {BT.SINGLE: 0,
-                 BT.DOUBLE: 1,
-                 BT.TRIPLE: 2}
-    else:
-        bonds = {BT.SINGLE: 0,
-                 BT.DOUBLE: 1,
-                 BT.TRIPLE: 2,
-                 BT.AROMATIC: 3}
+    # if args.ZINC_filtered == False:
+    #     bonds = {BT.SINGLE: 0,
+    #              BT.DOUBLE: 1,
+    #              BT.TRIPLE: 2}
+    # else:
+    bonds = {BT.SINGLE: 0,
+            BT.DOUBLE: 1,
+            BT.TRIPLE: 2,
+            BT.AROMATIC: 3}
 
     data_list = []
 

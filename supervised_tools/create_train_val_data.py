@@ -1,10 +1,11 @@
 from collections import Counter
 from torch.utils.data import DataLoader, Dataset
-from utils.data_utils import to_networkx, to_undirected, encode_adj, Graph_sequence_sampler_pytorch
+from torch_geometric.utils import to_networkx
+from utils.data_utils import  to_undirected, encode_adj, Graph_sequence_sampler_pytorch
 from torch_geometric.utils import to_dense_adj
 import torch
 import numpy as np
-from networkx import to_numpy_matrix
+from networkx import from_numpy_array, to_numpy_array  # to_numpy_matrix
 from args import Args
 
 
@@ -27,10 +28,8 @@ def process_subset(subset, max_num_node, max_prev_node):
     for g in subset:
         adj_all.append(to_dense_adj(edge_index=g.edge_index, batch=None, edge_attr=g.edge_attr))
 
-    data = Graph_sequence_sampler_pytorch(Graph_list=G_list, node_attr_list=node_attr_list, adj_all=adj_all,
+    return Graph_sequence_sampler_pytorch(Graph_list=G_list, node_attr_list=node_attr_list, adj_all=adj_all,
                                           max_num_node=max_num_node, max_prev_node=max_prev_node)
-
-    return data
 
 
 def create_train_val_dataloaders(dataset, max_num_node, max_prev_node):
@@ -41,7 +40,7 @@ def create_train_val_dataloaders(dataset, max_num_node, max_prev_node):
     - max_prev_node = (max number of nodes-1)
     '''
     train_set = process_subset(dataset, max_num_node, max_prev_node)
-    train_dataset_loader = DataLoader(train_set, batch_size=32, shuffle=True)
+    train_dataset_loader = DataLoader(train_set, batch_size=32, shuffle=True)#, num_workers=15)
     return train_dataset_loader, []
 
 
@@ -107,7 +106,7 @@ class weights_sampler(Dataset):
         x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
         y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
 
-        original_a = np.asarray(to_numpy_matrix(self.graph_list[idx]))
+        original_a = np.asarray(to_numpy_array(self.graph_list[idx])) # to_numpy_matrix
         adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, args=self.args_)
 
         x_batch[0, :, :] = 1

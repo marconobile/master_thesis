@@ -3,11 +3,15 @@ import torch.nn.functional as F
 from torch_geometric.data import Data
 
 
-def generate_single_obs(rnn, output, absence_net, device, args, max_num_node, max_prev_node, test_batch_size=1):
+def generate_single_obs(rnn, output, absence_net, device, max_num_node, max_prev_node, test_batch_size=1):
     # initialize hidden state
+
+    node_feature_dims = 12
+    edge_feature_dims = 5
+    
     rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)
     # create node level token
-    x_step = torch.ones((test_batch_size, 1, max_prev_node * args.edge_feature_dims + args.node_feature_dims),
+    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims),
                         requires_grad=False).to(device)
     # initialize empty lists for Data() object
     x_list = []
@@ -28,9 +32,9 @@ def generate_single_obs(rnn, output, absence_net, device, args, max_num_node, ma
         x_list.append(node_prediction_argmax_squeezed)
 
         # reset and update input for next iteration
-        x_step = torch.zeros((test_batch_size, 1, max_prev_node * args.edge_feature_dims + args.node_feature_dims),
+        x_step = torch.zeros((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims),
                              requires_grad=False).to(device)
-        x_step[:, :, :args.node_feature_dims] = node_prediction_argmax.data
+        x_step[:, :, :node_feature_dims] = node_prediction_argmax.data
         # .data: we only want to get the contenet of the tensor
 
         # init Edge/Abs lvl
@@ -96,11 +100,11 @@ def generate_single_obs(rnn, output, absence_net, device, args, max_num_node, ma
                     edg_idx_list.append(torch.tensor([idx[j], i + 1], requires_grad=False))
 
             # Define next time-step input
-            x_step[:, :, 4 * j + args.node_feature_dims + j: 4 * (j + 1) + args.node_feature_dims + (
+            x_step[:, :, 4 * j + node_feature_dims + j: 4 * (j + 1) + node_feature_dims + (
                         j + 1)] = output_x_step_argmax.data
             edge_rnn_step = j
 
-        node_to_break, edges_to_break = torch.split(x_step, [args.node_feature_dims, max_prev_node * 5], dim=2)
+        node_to_break, edges_to_break = torch.split(x_step, [node_feature_dims, max_prev_node * 5], dim=2)
         edges_to_break_temp = torch.reshape(edges_to_break, (edges_to_break.shape[0], max_prev_node, 5)).to(device)
         edges_to_break_uptillnow = edges_to_break_temp[0, :edge_rnn_step + 1, :].to(device)
         break_ = True

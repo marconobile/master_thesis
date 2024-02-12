@@ -1,9 +1,14 @@
-from args import Args
+# from args import Args
 import torch
 
 
+node_feature_dims = 12
+edge_feature_dims = 5
+max_num_node = 88
+max_prev_node = max_num_node - 1
+
 def get_generator():
-    args = Args()
+    # args = Args()
     num_layers = 2
 
     # NODE LEVEL AND ABSENCE NET embeddings and hidden sizes
@@ -15,20 +20,19 @@ def get_generator():
     hidden_size_rnn_output = 128
     out_edge_level = hidden_size_rnn_output
 
-    rnn = GRU_plain(#input_size=args.node_feature_dims + args.edge_feature_dims * args.max_prev_node,
-                    input_size=args.node_feature_dims + args.edge_feature_dims * 36, 
+    rnn = GRU_plain(input_size=node_feature_dims + edge_feature_dims * max_prev_node,                                    
                     embedding_size=embedding_size_rnn,
                     hidden_size=hidden_size_rnn, num_layers=num_layers, has_input=True,
                     has_output=True, output_size=hidden_size_rnn_output, node_lvl=True,
                     out_middle_layer=hidden_size_rnn_output)
 
-    absence_net = GRU_plain(input_size=args.edge_feature_dims, embedding_size=embedding_size_rnn_output,
+    absence_net = GRU_plain(input_size=edge_feature_dims, embedding_size=embedding_size_rnn_output,
                             hidden_size=hidden_size_rnn_output, num_layers=num_layers, has_input=True,
                             has_output=True, output_size=1, node_lvl=False, out_middle_layer=out_edge_level)
 
-    output = GRU_plain(input_size=args.edge_feature_dims, embedding_size=embedding_size_rnn_output,
+    output = GRU_plain(input_size=edge_feature_dims, embedding_size=embedding_size_rnn_output,
                        hidden_size=hidden_size_rnn_output, num_layers=num_layers, has_input=True,
-                       has_output=True, output_size=args.edge_feature_dims - 1, node_lvl=False,
+                       has_output=True, output_size=edge_feature_dims - 1, node_lvl=False,
                        out_middle_layer=out_edge_level)
 
     return rnn, output, absence_net
@@ -46,7 +50,7 @@ class GRU_plain(torch.nn.Module):
         self.out_middle_layer = out_middle_layer
         self.cuda = True if torch.cuda.is_available() else False
         self.device = torch.device("cuda:0" if self.cuda else "cpu")
-        self.args = Args()
+        # self.args = Args()
 
         if has_input:
             self.input = torch.nn.Linear(input_size, embedding_size)  # embedding layer
@@ -65,7 +69,7 @@ class GRU_plain(torch.nn.Module):
             self.node_mlp = torch.nn.Sequential(
                 torch.nn.Linear(hidden_size, out_middle_layer),
                 torch.nn.ReLU(),
-                torch.nn.Linear(out_middle_layer, self.args.node_feature_dims))
+                torch.nn.Linear(out_middle_layer, node_feature_dims))
 
         self.relu = torch.nn.ReLU()
 

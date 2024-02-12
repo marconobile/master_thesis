@@ -6,8 +6,6 @@ from args import Args
 
 def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output,
                     node_weights, edge_weights, device, absence_net, absence_net_opt):
-    args = Args()
-
     rnn.train()
     output.train()
     absence_net.train()
@@ -17,10 +15,11 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output,
     loss_sum_edges = 0
     loss_sum_nodes = 0
 
-    max_num_node = args.max_num_node
-    max_prev_node = args.max_prev_node
-    num_layers = rnn.num_layers
-    edge_features_dim = args.edge_feature_dims
+    node_feature_dims = 12
+    edge_features_dim = 5
+    max_num_node = 88
+    max_prev_node = max_num_node - 1
+
 
     for batch_idx, data in enumerate(data_loader_):
 
@@ -90,8 +89,8 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output,
         idx = torch.tensor(torch.LongTensor(idx)).to(device)
         h = h.index_select(0, idx)
 
-        hidden_null_1 = torch.tensor(torch.zeros(num_layers - 1, h.size(0), h.size(1))).to(device)
-        hidden_null_2 = torch.tensor(torch.zeros(num_layers - 1, h.size(0), h.size(1))).to(device)
+        hidden_null_1 = torch.tensor(torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1))).to(device)
+        hidden_null_2 = torch.tensor(torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1))).to(device)
 
         output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null_1),
                                   dim=0)  # num_layers, batch_size, hidden_size

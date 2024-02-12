@@ -146,7 +146,6 @@ def generate_single_obs(rnn, output, absence_net, device, max_num_node, max_prev
             device)
 
     else:
-
         # print('disconnected nodes case')
         data = Data(x=x.to(torch.float32).to(device))
         return data
@@ -179,7 +178,7 @@ def save_smiles(smiles, path, filename, ext='.txt'):
 
 
 # ------------------------------------------------------------------------------------------
-Ns = [10000, 60000, 110000, 160000, 210000]
+Ns = [50, 60000, 110000, 160000, 210000]
 
 # for each el in list, call f with el
 
@@ -190,7 +189,7 @@ def generate_mols(N):
         obs = generate_single_obs(rnn, output, absence_net, device, test_batch_size=1,
                                     max_num_node=max_num_node,
                                     max_prev_node=max_prev_node)
-        to_draw.append(obs)
+        to_draw.append(obs)        
 
     smiles_ = get_smiles(to_draw)
     path = "/home/nobilm@usi.ch/wd/data/generated_smiles/graphRNN_original_thesis_weights/"

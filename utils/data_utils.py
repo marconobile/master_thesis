@@ -2,10 +2,10 @@ import torch
 from torch_geometric.utils import to_dense_adj
 import numpy as np
 import networkx as nx
-from args import Args
 from utils.chem import numpy_to_rdkit, plot_rdkit_svg_grid, valid_score, numpy_to_smiles, novel_score, unique_score
 from rdkit import Chem
 from utils.molecular_metrics import MolecularMetrics
+
 
 
 def mols_txt(epoch, mols_, smiles_, smiles_list):
@@ -115,33 +115,33 @@ def get_smiles(dataset):
     return smiles_
 
 
-# ORIGINAL PyG FUNCTION
-def to_networkx(data, node_attrs=None, edge_attrs=None):
-    r"""Converts a :class:`torch_geometric.data.Data` instance to a
-    :obj:`networkx.DiGraph`.
+# # ORIGINAL PyG FUNCTION
+# def to_networkx(data, node_attrs=None, edge_attrs=None):
+#     r"""Converts a :class:`torch_geometric.data.Data` instance to a
+#     :obj:`networkx.DiGraph`.
 
-    Args:
-        data (torch_geometric.data.Data): The data object.
-        node_attrs (iterable of str, optional): The node attributes to be
-            copied. (default: :obj:`None`)
-        edge_attrs (iterable of str, optional): The edge attributes to be
-            copied. (default: :obj:`None`)
-    """
-    G = nx.DiGraph()
-    G.add_nodes_from(range(data.num_nodes))
+#     Args:
+#         data (torch_geometric.data.Data): The data object.
+#         node_attrs (iterable of str, optional): The node attributes to be
+#             copied. (default: :obj:`None`)
+#         edge_attrs (iterable of str, optional): The edge attributes to be
+#             copied. (default: :obj:`None`)
+#     """
+#     G = nx.DiGraph()
+#     G.add_nodes_from(range(data.num_nodes))
 
-    values = {key: data[key].squeeze().tolist() for key in data.keys}
+#     values = {key: data[key].squeeze().tolist() for key in data.keys()}
 
-    for i, (u, v) in enumerate(data.edge_index.t().tolist()):
-        G.add_edge(u, v)
-        for key in edge_attrs if edge_attrs is not None else []:
-            G[u][v][key] = values[key][i]
+#     for i, (u, v) in enumerate(data.edge_index.t().tolist()):
+#         G.add_edge(u, v)
+#         for key in edge_attrs if edge_attrs is not None else []:
+#             G[u][v][key] = values[key][i]
 
-    for key in node_attrs if node_attrs is not None else []:
-        for i, feat_dict in G.nodes(data=True):
-            feat_dict.update({key: values[key][i]})
+#     for key in node_attrs if node_attrs is not None else []:
+#         for i, feat_dict in G.nodes(data=True):
+#             feat_dict.update({key: values[key][i]})
 
-    return G
+#     return G
 
 
 # ORIGINAL NX FUNCTION
@@ -155,7 +155,7 @@ def to_undirected(graph):
     return graph.to_undirected(as_view=True)
 
 
-def encode_adj(adj, original, max_prev_node, args):
+def encode_adj(adj, original, max_prev_node, edge_feature_dims):
     '''
     :param adj: A of current g with edge features as els : (V, V, 4)
     :param original: plain A of current g (without edge features: a binary matrix)
@@ -164,7 +164,7 @@ def encode_adj(adj, original, max_prev_node, args):
     '''
 
     n = original.shape[0] - 1  # N - 1 of the current graph
-    temp = np.zeros((n, max_prev_node, args.edge_feature_dims))
+    temp = np.zeros((n, max_prev_node, edge_feature_dims))
 
     original_tril = np.tril(original, k=-1)  # lower tri of original A
     original_tril_idx = np.nonzero(original_tril)
@@ -180,7 +180,7 @@ def encode_adj(adj, original, max_prev_node, args):
         temp[i - 1, j, :] = np.concatenate((np.array([0.]), adj[i, j, :]), 0)
         # [i - 1, j ]  since we drop first row of A in the encoding, we need to 'move up' every row-idx
 
-    adj_output = np.zeros((n, max_prev_node, args.edge_feature_dims))
+    adj_output = np.zeros((n, max_prev_node, edge_feature_dims))
 
     # flip
     for i in range(0, n):
@@ -212,7 +212,9 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
             self.len_all.append(G.number_of_nodes())  # timesteps of node rnn for each G
         self.max_num_node = max_num_node
         self.max_prev_node = max_prev_node
-        self.args_ = Args()
+
+        self.edge_feature_dims = 5
+        self.node_feature_dims = 12
 
     def __len__(self):
         return len(self.adj_all)
@@ -221,11 +223,12 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
         # edge encoding:
         adj_copy = np.asarray(self.adj_all[idx]).copy()
         adj_copy = np.squeeze(adj_copy)  # adj_copy had bs as first dim
-        x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
-        y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
+        x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
+        y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
 
-        original_a = np.asarray(nx.to_numpy_matrix(self.graph_list[idx]))  # A without edge features of the current g
-        adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, args=self.args_)
+        original_a = np.asarray(nx.adjacency_matrix(self.graph_list[idx]).todense())  # A without edge features of the current g
+        # original_a = np.asarray(nx.from_numpy_array(self.graph_list[idx]))  # A without edge features of the current g
+        adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, edge_feature_dims = self.edge_feature_dims)
 
         x_batch[0, :, :] = 1
         x_batch[1:adj_encoded.shape[0] + 1, :] = adj_encoded
@@ -238,8 +241,8 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
 
         # node encoding:
         node_attr_list_copy = np.asarray(self.node_attr_list[idx]).copy()
-        x_node_attr = np.zeros((self.max_num_node, self.args_.node_feature_dims))
-        y_node_attr = np.zeros((self.max_num_node, self.args_.node_feature_dims))
+        x_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
+        y_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
 
         # input nodes:
         x_node_attr[0, :] = 1
