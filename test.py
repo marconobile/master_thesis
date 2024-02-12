@@ -307,7 +307,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         rnn.zero_grad()
         output.zero_grad()
 
-        loss, edge_loss, node_loss = fit_batch(data, rnn, output)
+        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
 
         loss.backward(retain_graph=True)
         optimizer_output.step()
@@ -320,7 +320,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
     return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
-def fit_batch(data, rnn, output):
+def fit_batch(data, rnn, output, node_weights, edge_weights):
     # ([bs, max_num_node, max_prev_node, edge_feature])
     x_unsorted = data['x'].float()
     y_unsorted = data['y'].float()
@@ -445,8 +445,8 @@ def fit_batch(data, rnn, output):
     # node_loss = F.cross_entropy(
     #     node_prediction, indices_nodes, reduction='mean')
 
-    edge_loss = F.nll_loss(y_pred, indices_edges, reduction='mean')
-    node_loss = F.nll_loss(node_prediction, indices_nodes, reduction='mean')
+    edge_loss = F.nll_loss(y_pred, indices_edges, reduction='mean', weight=edge_weights.to(torch.float32).to(device))
+    node_loss = F.nll_loss(node_prediction, indices_nodes, reduction='mean', weight=node_weights.to(torch.float32).to(device))
 
     loss = edge_loss + node_loss
     return loss, edge_loss, node_loss
@@ -633,10 +633,10 @@ def get_generator():
     hidden_size_rnn = 256 *4
 
     # EDGE LEVEL embeddings and hidden sizes
-    embedding_size_rnn_output = 128 *4
-    hidden_size_rnn_output = 128 *4
+    embedding_size_rnn_output = 256 *2
+    hidden_size_rnn_output = 256 *2
     out_edge_level = hidden_size_rnn_output
-    num_layers = 1
+    num_layers = 4
 
     rnn = GRU_plain(input_size=node_feature_dims + edge_feature_dims * max_prev_node,                    
         num_layers=num_layers,
@@ -659,30 +659,62 @@ def get_generator():
 # guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/guacamol2_molgpt.smiles"
 guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 guac_mols = mols_from_file(guacm_smiles, True)
-atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
-bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
-num2bond = {v: k for k, v in bond2num.items()}
+# atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
 
-data = rdkit2pyg([guac_mols[0]])  # HERE
+
+atom2num = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
+nweights = {
+'C': 0.03238897867833534,
+'Br': 14.044943820224718,
+'N': 0.21620219229022983,
+'O': 0.2177273617975571,
+'S': 1.6680567139282736,
+'Cl': 2.872737719046251,
+'F': 1.754693805930865,
+'P': 37.735849056603776,
+'I': 100.0,
+'B': 416.6666666666667,
+'Si': 454.54545454545456,
+'Se': 833.3333333333334}
+
+bweights = {
+BT.SINGLE: 4.663287337775892,
+BT.AROMATIC: 4.77780803722868,
+BT.DOUBLE: 34.74514436607484,
+BT.TRIPLE: 969.9321047526673
+}
+
+nweights_list = []
+for k in atom2num:
+    nweights_list.append(nweights[k])    
+
+num2atom = {v:k for k,v in atom2num.items()}
+print(atom2num)
+bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
+
+bweights_list = []
+for k in bond2num:
+    bweights_list.append(bweights[k])    
+
+num2bond = {v: k for k, v in bond2num.items()}
+data = rdkit2pyg([guac_mols[1]])  # HERE
 
 device, cuda, train_log, test_log = setup()
 max_num_node = 88
 node_feature_dims = 12
 edge_feature_dims = 5
 max_prev_node = max_num_node - 1
-LR = 2e-3
-wd = 5e-3
+LR = 1e-5
+# wd = 7e-3
 
-train_dataset_loader, _ = create_train_val_dataloaders(
-    data, max_num_node, max_prev_node)
-node_weights, edge_weights = torch.ones(
-    (node_feature_dims)), torch.ones((edge_feature_dims))
+train_dataset_loader, _ = create_train_val_dataloaders(data, max_num_node, max_prev_node)
+bweights_list.insert(0, 1500)
+node_weights = torch.tensor(nweights_list) 
+edge_weights = torch.tensor(bweights_list) 
 
 rnn, output = get_generator()
-optimizer_rnn = torch.optim.AdamW(
-    list(rnn.parameters()), lr=LR)  # , weight_decay=wd)
-optimizer_output = torch.optim.AdamW(
-    list(output.parameters()), lr=LR)  # , weight_decay=wd)
+optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd) # 1E-3
+optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)  # , weight_decay=wd)
 
 if cuda:
     rnn.to(device)
@@ -692,8 +724,7 @@ if cuda:
 rnn.apply(weight_init)
 output.apply(weight_init)
 epoch = 1  # starting epoch
-max_epoch = 1000
-# patience = 100
+max_epoch = 4001
 counter_test = 0
 
 # from torch_lr_finder import LRFinder
@@ -707,7 +738,6 @@ scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, st
 lrrnn = []
 lrout = []
 while epoch <= max_epoch:
-
     loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
                                                             data_loader_=train_dataset_loader,
                                                             optimizer_rnn=optimizer_rnn,
@@ -715,10 +745,11 @@ while epoch <= max_epoch:
                                                             node_weights=node_weights,
                                                             edge_weights=edge_weights,
                                                             device=device)
-    # scheduler1.step()
-    # scheduler2.step()
+    scheduler1.step()
+    scheduler2.step()
     epoch += 1
-    train_log.info(
+    if epoch % 100 == 0:
+        train_log.info(
         f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
     
     # lrrnn.append(scheRNN.get_last_lr())
