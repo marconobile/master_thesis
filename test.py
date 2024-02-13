@@ -434,56 +434,53 @@ scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=
 #     print(module_name, module)
 
 
-VALIDATION, GENERATE = False, True
-while epoch <= max_epoch:
-    loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
-                                                            data_loader_=train_dataset_loader,
-                                                            optimizer_rnn=optimizer_rnn,
-                                                            optimizer_output=optimizer_output,
-                                                            node_weights=node_weights,
-                                                            edge_weights=edge_weights)
-
-    scheduler_rnn.step()
-    scheduler_output.step()
-    if epoch % 100 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-    if VALIDATION and epoch % 100 == 0:
-        loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
-        val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-    epoch += 1
+# VALIDATION, GENERATE = False, True
+# while epoch <= max_epoch:
+#     loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
+#                                                             data_loader_=train_dataset_loader,
+#                                                             optimizer_rnn=optimizer_rnn, optimizer_output=optimizer_output,
+#                                                             node_weights=node_weights, edge_weights=edge_weights)
+#     scheduler_rnn.step()
+#     scheduler_output.step()
+#     if epoch % 100 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+#     if VALIDATION and epoch % 100 == 0:
+#         loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
+#         val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+#     epoch += 1
 
     
 
-# for color, k in enumerate(layer_stds_rnn.keys()):
-#     plt.plot([i for i in range(len(layer_means_rnn[k]))], layer_means_rnn[k], label=f'{k} mean'.format(i=color))
-# plt.legend(loc='best')
-# plt.savefig("./meansRNN.png")
+# # for color, k in enumerate(layer_stds_rnn.keys()):
+# #     plt.plot([i for i in range(len(layer_means_rnn[k]))], layer_means_rnn[k], label=f'{k} mean'.format(i=color))
+# # plt.legend(loc='best')
+# # plt.savefig("./meansRNN.png")
 
-# plt.cla() 
-# plt.clf() 
+# # plt.cla() 
+# # plt.clf() 
 
-# for color, k in enumerate(layer_stds_rnn.keys()):
-#     plt.plot([i for i in range(len(layer_stds_rnn[k]))], layer_stds_rnn[k], label=f'{k} std'.format(i=color))
-# plt.legend(loc='best')
-# plt.savefig("./stdsRNN.png")
-
-
+# # for color, k in enumerate(layer_stds_rnn.keys()):
+# #     plt.plot([i for i in range(len(layer_stds_rnn[k]))], layer_stds_rnn[k], label=f'{k} std'.format(i=color))
+# # plt.legend(loc='best')
+# # plt.savefig("./stdsRNN.png")
 
 
-# x = [i for i in range(len(layer_means_rnn))]
-# y = layer_means_rnn
-# plt.xlabel("epoch")
-# plt.ylabel("act val")
-# # plt.title("A test graph")
-# for i in range(len(y[0])):
-#     plt.plot(x,[pt[i] for pt in y],label = 'id %s'%i)
-# plt.legend()
-# plt.show()
-# plt.imsave('./foo.png')
-
-# ------------------------------------------------------------------------------------------
 
 
-if GENERATE:
-    Ns = [10]#, 60000, 110000, 160000, 210000]
-    for i in Ns: generate_mols(i)
+# # x = [i for i in range(len(layer_means_rnn))]
+# # y = layer_means_rnn
+# # plt.xlabel("epoch")
+# # plt.ylabel("act val")
+# # # plt.title("A test graph")
+# # for i in range(len(y[0])):
+# #     plt.plot(x,[pt[i] for pt in y],label = 'id %s'%i)
+# # plt.legend()
+# # plt.show()
+# # plt.imsave('./foo.png')
+
+# # ------------------------------------------------------------------------------------------
+
+
+# if GENERATE:
+#     Ns = [10]#, 60000, 110000, 160000, 210000]
+#     for i in Ns: generate_mols(i)
 
