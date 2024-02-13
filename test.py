@@ -338,7 +338,9 @@ guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 
 train_guac_mols = mols_from_file(guacm_smiles, True)
 valid_guac_mols = train_guac_mols
-train_data = rdkit2pyg([train_guac_mols[4]])  # train_guac_mols[:50]
+train_data = rdkit2pyg([train_guac_mols[3]])  # train_guac_mols[:50]
+print(Chem.MolToSmiles(train_guac_mols[3]))
+
 valid_data = train_data
 # atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
 #!-------------------------------------------
@@ -373,17 +375,17 @@ edge_weights = torch.tensor(bweights_list)
 #!-------------------------------------------
 
 #! --- SET UP EXPERIMENT ---
-LR, wd = 1e-5, 5e-4
-epoch, max_epoch = 1, 6001
+LRrnn, LRout, wd = 1e-5, 3e-6, 5e-4
+epoch, max_epoch = 1, 5001
 device, cuda, train_log, val_log = setup()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
 rnn, output = get_generator()
 rnn.apply(weight_init)
 output.apply(weight_init)
-optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd)
-optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)  # , weight_decay=wd)
-scheduler1 = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LRrnn)  # , weight_decay=wd)
+optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LRout)  # , weight_decay=wd)
+scheduler_rnn = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 #!-------------------------------------------
 
 # for module_name, module in rnn.named_children():
@@ -441,9 +443,9 @@ while epoch <= max_epoch:
                                                             node_weights=node_weights,
                                                             edge_weights=edge_weights)
 
-    scheduler1.step()
-    scheduler2.step()
-    if epoch % 10 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+    scheduler_rnn.step()
+    scheduler_output.step()
+    if epoch % 100 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
     if VALIDATION and epoch % 100 == 0:
         loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
         val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')

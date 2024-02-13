@@ -1,6 +1,9 @@
 import os
 import torch
 from mappings import node_feature_dims, edge_feature_dims, max_prev_node
+import torch.nn as nn
+import torch.nn.functional as F
+
 
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
@@ -36,52 +39,61 @@ def get_generator():
         output.to(device)
     return rnn, output
 
-class GRU_plain(torch.nn.Module):
+class GRU_plain(nn.Module):
     def __init__(self, input_size, num_layers, out_middle_layer, embedding_size, hidden_size, output_size, node_lvl=False):
         super(GRU_plain, self).__init__()
         self.hidden_size, self.node_lvl, self.num_layers = hidden_size, node_lvl, num_layers          
         self.hidden = None  # need initialize before forward run
 
         # Layers
-        self.rnn = torch.nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
-        self.input = torch.nn.Linear(input_size, embedding_size)  # embedding layer
-        self.output = torch.nn.Sequential(
-            torch.nn.Linear(hidden_size, out_middle_layer),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(out_middle_layer, output_size))
+        self.embedding = nn.Linear(input_size, embedding_size)
+        self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
 
+        # 2 roles: 
+        # 1 if nodeLvl: maps nodeLvl RNN (rnn) to the dimensionality of the edgeLvlRNN (output)
+        # 2 if edgeLvl: out mlp that returns unnormalized logits for edge predictions
+        self.output1 = nn.Linear(hidden_size, out_middle_layer)
+        self.output2 = nn.Linear(out_middle_layer, output_size)
+                    
         if node_lvl:
-            self.node_mlp = torch.nn.Sequential(
-                torch.nn.Linear(hidden_size, out_middle_layer),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(out_middle_layer, node_feature_dims))
+            self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer)
+            self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)             
             
     def get_layers(self):
-        if self.node_lvl:
-            return self.rnn, self.input, self.output, self.node_mlp
+        if self.node_lvl: return self.embedding, self.rnn, self.output1, self.output2, self.node_mlp1, self.node_mlp2
+        return self.embedding, self.rnn, self.output1, self.output2            
 
     def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
     def forward(self, input_raw, pack=False, input_len=None):
-        input = self.input(input_raw)  # embedding
-        if pack: input = torch.nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
-
+        # embed binary vector
+        input = self.embedding(input_raw)
+        # pack sequences
+        if pack: 
+            input = nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
+        # pass them thru the rnn
         output_raw, self.hidden = self.rnn(input, self.hidden)        
-        if pack: output_raw = torch.nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
-        else: output_raw_1 = self.output(output_raw) # return hidden state at each time step
+
+        # unpack sequences
+        if pack: 
+            output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
+        else: 
+            output_raw_1 = self.output1(output_raw)
+            output_raw_1 = F.leaky_relu(output_raw_1)
+            output_raw_1 = self.output2(output_raw_1) # return hidden state at each time step
 
         if self.node_lvl:
-            node_pred = self.node_mlp(output_raw)
+            node_pred = self.node_mlp1(output_raw)
+            node_pred = F.leaky_relu(node_pred)
+            node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred
         else: return output_raw_1
 
-
+    def get_save_path(self): return os.getcwd() + "./weights/"
     def save(self, epoch):
-        path = os.getcwd() + "./weights/"
+        self.save_path = os.getcwd() + "./weights/"
         checkpoint = {'model_state_dict': self.state_dict(),}
-        if self.node_lvl:
-            torch.save(checkpoint, path + f'nodeRNN_checkpoint_{epoch}.pth')
-        else:
-            torch.save(checkpoint, path + f'edgeRNN_checkpoint_{epoch}.pth')
+        if self.node_lvl: torch.save(checkpoint, self.save_path + f'nodeRNN_checkpoint_{epoch}.pth')
+        else: torch.save(checkpoint, self.save_path + f'edgeRNN_checkpoint_{epoch}.pth')
 
