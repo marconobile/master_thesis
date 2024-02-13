@@ -21,12 +21,11 @@ def setup():
     '''
     Setup of loggers, cuda and seeds.
     '''
-
-    setup_logger('train_loss_log', r'../train_loss_log')
-    setup_logger('test_loss_log', r'../test_loss_log')
+    setup_logger('train_loss_log', r'./train_loss_log')
+    setup_logger('val_loss_log', r'./val_loss_log')
 
     train_log = logging.getLogger('train_loss_log')
-    test_log = logging.getLogger('test_loss_log')
+    val_log = logging.getLogger('val_loss_log')
 
     manualSeed = 123
     np.random.seed(manualSeed)
@@ -43,14 +42,4 @@ def setup():
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = False
 
-    return device, cuda, train_log, test_log
-
-
-def unsupervised_setup():
-
-    setup_logger('critic_loss_log', r'./critic_loss_log')
-    critic_loss_log = logging.getLogger('critic_loss_log')
-    setup_logger('generator_loss_log', r'./generator_loss_log')
-    generator_loss_log = logging.getLogger('generator_loss_log')
-
-    return critic_loss_log, generator_loss_log
+    return device, cuda, train_log, val_log
