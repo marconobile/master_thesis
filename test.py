@@ -57,15 +57,10 @@ def rdkit2pyg(mols):
     '''
     data_list = []
     for mol in mols:
-        if mol is None:
-            continue
-
+        if mol is None: continue
         N = mol.GetNumAtoms()
-
         type_idx = []
-        for atom in mol.GetAtoms():
-            type_idx.append(atom2num[atom.GetSymbol()])
-
+        for atom in mol.GetAtoms(): type_idx.append(atom2num[atom.GetSymbol()])
         x = F.one_hot(torch.tensor(type_idx), num_classes=len(atom2num))
         row, col, bond_idx = [], [], []
         for bond in mol.GetBonds():
@@ -75,10 +70,8 @@ def rdkit2pyg(mols):
             bond_idx += 2 * [bond2num[bond.GetBondType()]]
 
         edge_index = torch.tensor([row, col], dtype=torch.long)
-        edge_attr = F.one_hot(torch.tensor(bond_idx).to(torch.int64),
-                              num_classes=len(bond2num)).to(torch.float)
+        edge_attr = F.one_hot(torch.tensor(bond_idx).to(torch.int64),num_classes=len(bond2num)).to(torch.float)
         edge_index, edge_attr = coalesce(edge_index, edge_attr, N, N)
-
         data_list.append(Data(x=x, edge_index=edge_index, edge_attr=edge_attr))
 
     return data_list
@@ -94,8 +87,7 @@ def pyg2rdkit(dataset):
         :param sanitize: whether to sanitize the molecule after conversion
         :return: an RDKit molecule
         """
-        if Chem is None:
-            raise ImportError('`numpy_to_rdkit` requires RDKit.')
+        if Chem is None: raise ImportError('`numpy_to_rdkit` requires RDKit.')
         mol = Chem.RWMol()
         for nf_ in nf:
             # atomic_num = torch.argmax(nf_).item()
@@ -106,18 +98,15 @@ def pyg2rdkit(dataset):
             if i != j and adj[i, j] == adj[j, i] == 1 and not mol.GetBondBetweenAtoms(int(i), int(j)):
                 bond_type_1 = num2bond[int(ef[i, j, 0])]
                 bond_type_2 = num2bond[int(ef[j, i, 0])]
-                if bond_type_1 == bond_type_2:
-                    mol.AddBond(int(i), int(j), bond_type_1)
+                if bond_type_1 == bond_type_2: mol.AddBond(int(i), int(j), bond_type_1)
 
         mol = mol.GetMol()
-        if sanitize:
-            Chem.SanitizeMol(mol)
+        if sanitize: Chem.SanitizeMol(mol)
         return mol
 
     mols_ = []
     for i, obs in enumerate(dataset):
-        ef_temp = torch.squeeze(to_dense_adj(
-            edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
+        ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
         ef = torch.zeros((ef_temp.shape[0], ef_temp.shape[1], 1))
         adj = torch.zeros((ef_temp.shape[0], ef_temp.shape[1]))
 
@@ -262,11 +251,8 @@ class GRU_plain(torch.nn.Module):
     #             #     m.weight.data, gain=torch.nn.init.calculate_gain('leaky_relu')).to(device)
     #             m.weight.data = m.weight.data *.01
 
-    def init_hidden(self, batch_size): return torch.zeros(
-        (self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
-
-    def init_hidden_rand(self, batch_size): return torch.rand(
-        (self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
+    def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
+    def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
     def forward(self, input_raw, pack=False, input_len=None):
         input_raw.to(device)
@@ -333,10 +319,8 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     x_nodes_unsorted = x_nodes_unsorted[:, 0:y_len_max, :]
     y_nodes_unsorted = y_nodes_unsorted[:, 0:y_len_max, :]
 
-    x_unsorted_for_nn = torch.reshape(x_unsorted, (
-        x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
-    y_unsorted_for_nn = torch.reshape(y_unsorted, (
-        x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
+    x_unsorted_for_nn = torch.reshape(x_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
+    y_unsorted_for_nn = torch.reshape(y_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
 
     rnn.hidden = rnn.init_hidden(batch_size=x_unsorted_for_nn.size(0))
 
@@ -347,18 +331,14 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     y = torch.index_select(y_unsorted_for_nn, 0, sort_index)
     # ([bs, max_seq_l, node_f])
     x_nodes = torch.index_select(x_nodes_unsorted, 0, sort_index)
-    y_nodes = torch.index_select(
-        y_nodes_unsorted, 0, sort_index)  # NODE TARGETS
-    y_reshape = torch.nn.utils.rnn.pack_padded_sequence(
-        y, y_len, batch_first=True).data
+    y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # NODE TARGETS
+    y_reshape = torch.nn.utils.rnn.pack_padded_sequence(y, y_len, batch_first=True).data
     idx = [i for i in range(y_reshape.size(0) - 1, -1, -1)]
     idx = torch.LongTensor(idx)
     # inverts the rows order of y_reshape
     y_reshape = y_reshape.index_select(0, idx)
-    y_reshape = y_reshape.view(y_reshape.size(
-        0), max_prev_node, edge_feature_dims)
-    output_x = torch.cat((torch.ones(y_reshape.size(
-        0), 1, edge_feature_dims), y_reshape[:, 0:-1, :]), dim=1)
+    y_reshape = y_reshape.view(y_reshape.size(0), max_prev_node, edge_feature_dims)
+    output_x = torch.cat((torch.ones(y_reshape.size(0), 1, edge_feature_dims), y_reshape[:, 0:-1, :]), dim=1)
     output_y = y_reshape
     output_y_len = []
     output_y_len_bin = np.bincount(np.array(y_len))
@@ -380,17 +360,14 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     # OUTPUTS
     h, node_prediction = rnn(x, input_len=y_len)
 
-    h = torch.nn.utils.rnn.pack_padded_sequence(
-        h, y_len, batch_first=True).data  # get packed hidden vector
+    h = torch.nn.utils.rnn.pack_padded_sequence(h, y_len, batch_first=True).data  # get packed hidden vector
     idx = [i for i in range(h.size(0) - 1, -1, -1)]
     idx = torch.tensor(torch.LongTensor(idx)).to(device)
     h = h.index_select(0, idx)
 
-    hidden_null = torch.tensor(torch.zeros(
-        rnn.num_layers - 1, h.size(0), h.size(1))).to(device)
+    hidden_null = torch.tensor(torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1))).to(device)
     # num_layers, batch_size, hidden_size
-    output.hidden = torch.cat(
-        (h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
+    output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
     
     y_pred = output(output_x, input_len=output_y_len)
 
@@ -400,28 +377,20 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     node_prediction = F.log_softmax(node_prediction, dim=2)
 
     # pack and pad predicted edges
-    y_pred = torch.nn.utils.rnn.pack_padded_sequence(
-        y_pred, output_y_len, batch_first=True)
-    y_pred = torch.nn.utils.rnn.pad_packed_sequence(
-        y_pred, batch_first=True)[0]
+    y_pred = torch.nn.utils.rnn.pack_padded_sequence(y_pred, output_y_len, batch_first=True)
+    y_pred = torch.nn.utils.rnn.pad_packed_sequence(y_pred, batch_first=True)[0]
 
     # pack and pad real edges
-    output_y = torch.nn.utils.rnn.pack_padded_sequence(
-        output_y, output_y_len, batch_first=True)
-    output_y = torch.nn.utils.rnn.pad_packed_sequence(
-        output_y, batch_first=True)[0]
+    output_y = torch.nn.utils.rnn.pack_padded_sequence(output_y, output_y_len, batch_first=True)
+    output_y = torch.nn.utils.rnn.pad_packed_sequence(output_y, batch_first=True)[0]
 
     # pack and pad predicted nodes
-    node_prediction = torch.nn.utils.rnn.pack_padded_sequence(
-        node_prediction, y_len, batch_first=True)
-    node_prediction = torch.nn.utils.rnn.pad_packed_sequence(
-        node_prediction, batch_first=True)[0]
+    node_prediction = torch.nn.utils.rnn.pack_padded_sequence(node_prediction, y_len, batch_first=True)
+    node_prediction = torch.nn.utils.rnn.pad_packed_sequence(node_prediction, batch_first=True)[0]
 
     # pack and pad real nodes
-    y_nodes = torch.nn.utils.rnn.pack_padded_sequence(
-        y_nodes, y_len, batch_first=True)
-    y_nodes = torch.nn.utils.rnn.pad_packed_sequence(
-        y_nodes, batch_first=True)[0]
+    y_nodes = torch.nn.utils.rnn.pack_padded_sequence(y_nodes, y_len, batch_first=True)
+    y_nodes = torch.nn.utils.rnn.pad_packed_sequence(y_nodes, batch_first=True)[0]
 
     # permutations of predicted edg/nodes
     y_pred = y_pred.permute(0, 2, 1)
@@ -433,12 +402,6 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 
     values, indices_edges = torch.max(output_y, 1)
     values, indices_nodes = torch.max(y_nodes, 1)
-
-    # # weight=edge_weights[1:].to(torch.float32).to(device)
-    # edge_loss = F.cross_entropy(y_pred, indices_edges, reduction='mean')
-    # # weight=node_weights.to(torch.float32).to(device))
-    # node_loss = F.cross_entropy(
-    #     node_prediction, indices_nodes, reduction='mean')
 
     edge_loss = F.nll_loss(y_pred, indices_edges, reduction='mean', weight=edge_weights.to(torch.float32).to(device))
     node_loss = F.nll_loss(node_prediction, indices_nodes, reduction='mean', weight=node_weights.to(torch.float32).to(device))
@@ -653,9 +616,9 @@ if cuda:
     rnn.to(device)
     output.to(device)
 
-# model.apply(weight_init)
 rnn.apply(weight_init)
 output.apply(weight_init)
+
 epoch = 1  # starting epoch
 max_epoch = 7001
 counter_test = 0
