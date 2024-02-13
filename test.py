@@ -1,165 +1,24 @@
-import torch.nn.init as init
+from functools import partial
 import torch.nn as nn
+from model import get_generator
 from supervised_tools.create_train_val_data import create_train_val_dataloaders
 from torch_geometric.utils import to_dense_adj
 import numpy as np
 import os
 from torch_geometric.data import Data
-from torch_sparse import coalesce
 import torch.nn.functional as F
-from rdkit.Chem.rdchem import BondType as BT
 from rdkit import Chem
 from utils.setup import setup
 import torch
 print(torch.__version__)
+import matplotlib.pyplot as plt
 # from torch_lr_finder import LRFinder
-# import matplotlib.pyplot as plt
+from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdkit, save_smiles
+from mappings import *
 
 
-def save(epoch, rnn, output):
-    path = os.getcwd() + "/weights/"
-    checkpoint_rnn = {'model_state_dict': rnn.state_dict(),}
-    torch.save(checkpoint_rnn, path + f'nodeRNN_checkpoint_{epoch}.pth')
-
-    checkpoint_output = {'model_state_dict': output.state_dict(),}
-    torch.save(checkpoint_output, path + f'edgeRNN_checkpoint_{epoch}.pth')
-
-
-def load_nets(cuda, device, to_be_loaded):  
-    ''' 
-    to_be_loaded = int(last_epoch)
-    '''
-    path = "./weights"
-    rnn, output = get_generator()
-    PATH1 = path + f'/nodeRNN_checkpoint_{to_be_loaded}.pth'
-    if cuda: checkpoint1 = torch.load(PATH1)
-    else: checkpoint1 = torch.load(PATH1, map_location='cpu')
-    rnn.load_state_dict(checkpoint1['model_state_dict'])
-    PATH2 = path + f'/edgeRNN_checkpoint_{to_be_loaded}.pth'
-    if cuda: checkpoint2 = torch.load(PATH2)
-    else: checkpoint2 = torch.load(PATH2, map_location='cpu')
-    output.load_state_dict(checkpoint2['model_state_dict'])
-
-    rnn.to(device)
-    output.to(device)
-    rnn.eval()
-    output.eval()
-    return rnn, output
-
-
-def mols_from_file(pathfile: str, drop_none: bool = False):
-    '''
-    takes as input a path/to/file.ext 
-    where ext can be:
-    .sdf, .csv, .txt, .smiles
-    it returns all mols from file
-    if drop_none: drops all mols non valid for rdkit
-    '''
-    filename_ext = os.path.splitext(pathfile)[-1].lower()
-    if filename_ext in ['.sdf']:
-        suppl = Chem.SDMolSupplier(pathfile)
-    elif filename_ext in ['.csv', '.txt', '.smiles']:
-        suppl = Chem.SmilesMolSupplier(pathfile, titleLine=False)
-    else:
-        raise TypeError(f"{filename_ext} not supported")
-    if drop_none:
-        return [x for x in suppl if x is not None]
-    return [x for x in suppl]
-
-
-def get_atoms_info(mols):
-    atoms = set()
-    max_num = 0
-    for m in mols:
-        if m.GetNumAtoms() > max_num: max_num = m.GetNumAtoms()
-        for atom in m.GetAtoms(): atoms.add(atom.GetSymbol())
-
-    atom2num = {str(atomType): i for i, atomType in enumerate(atoms)}    
-    num2atom = {v: k for k, v in atom2num.items()}
-    return atom2num, num2atom, max_num
-
-
-def rdkit2pyg(mols):
-    '''
-    #! TODO: multiprocess
-    :param mols: iterable of rdkit mols
-    :return: list of PyG data objs with one-hot node/edge features
-    '''
-    data_list = []
-    for mol in mols:
-        if mol is None: continue
-        N = mol.GetNumAtoms()
-        type_idx = []
-        for atom in mol.GetAtoms(): type_idx.append(atom2num[atom.GetSymbol()])
-        x = F.one_hot(torch.tensor(type_idx), num_classes=len(atom2num))
-        row, col, bond_idx = [], [], []
-        for bond in mol.GetBonds():
-            start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-            row += [start, end]
-            col += [end, start]
-            bond_idx += 2 * [bond2num[bond.GetBondType()]]
-
-        edge_index = torch.tensor([row, col], dtype=torch.long)
-        edge_attr = F.one_hot(torch.tensor(bond_idx).to(torch.int64),num_classes=len(bond2num)).to(torch.float)
-        edge_index, edge_attr = coalesce(edge_index, edge_attr, N, N)
-        data_list.append(Data(x=x, edge_index=edge_index, edge_attr=edge_attr))
-
-    return data_list
-
-
-def pyg2rdkit(dataset):
-    def numpy_to_rdkit(adj, nf, ef, sanitize=False):
-        """
-        Converts a molecule from numpy to RDKit format.
-        :param adj: binary numpy array of shape (N, N) 
-        :param nf: numpy array of shape (N, F)
-        :param ef: numpy array of shape (N, N, S)
-        :param sanitize: whether to sanitize the molecule after conversion
-        :return: an RDKit molecule
-        """
-        if Chem is None: raise ImportError('`numpy_to_rdkit` requires RDKit.')
-        mol = Chem.RWMol()
-        for nf_ in nf:
-            # atomic_num = torch.argmax(nf_).item()
-            atomic_num = int(nf_)
-            mol.AddAtom(Chem.Atom(num2atom[atomic_num]))
-
-        for i, j in zip(*np.triu_indices(adj.shape[-1])):
-            if i != j and adj[i, j] == adj[j, i] == 1 and not mol.GetBondBetweenAtoms(int(i), int(j)):
-                bond_type_1 = num2bond[int(ef[i, j, 0])]
-                bond_type_2 = num2bond[int(ef[j, i, 0])]
-                if bond_type_1 == bond_type_2: mol.AddBond(int(i), int(j), bond_type_1)
-
-        mol = mol.GetMol()
-        if sanitize: Chem.SanitizeMol(mol)
-        return mol
-
-    mols_ = []
-    for i, obs in enumerate(dataset):
-        ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
-        ef = torch.zeros((ef_temp.shape[0], ef_temp.shape[1], 1))
-        adj = torch.zeros((ef_temp.shape[0], ef_temp.shape[1]))
-
-        for row in range(ef_temp.shape[0]):
-            for col in range(ef_temp.shape[1]):
-                if int(torch.sum(ef_temp[row, col]).item()) != 0:
-                    ef[row, col, 0] = torch.argmax(ef_temp[row, col]).item()
-                    adj[row, col] = 1
-
-        ef = np.array(ef)
-        adj = np.array(adj)
-
-        adj = adj.astype(int)
-        ef = ef.astype(int)
-
-        nf = np.array([torch.argmax(row).item() for row in obs.x])
-        nf = np.expand_dims(nf, 1)
-        nf = nf.astype(int)
-        mols_.append(numpy_to_rdkit(adj, nf, ef))
-
-    return mols_
-
-
+import torch.nn as nn
+import torch.nn.init as init
 def weight_init(m):
     '''
     Usage:
@@ -228,45 +87,6 @@ def weight_init(m):
                 init.normal_(param.data)
 
 
-class GRU_plain(torch.nn.Module):
-    def __init__(self, input_size, num_layers, out_middle_layer, embedding_size, hidden_size, output_size, node_lvl=False):
-        super(GRU_plain, self).__init__()
-        self.hidden_size = hidden_size
-        self.node_lvl = node_lvl
-        self.num_layers = num_layers
-
-        self.hidden = None  # need initialize before forward run
-        self.rnn = torch.nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
-
-        self.input = torch.nn.Linear(input_size, embedding_size)  # embedding layer
-        self.output = torch.nn.Sequential(
-            torch.nn.Linear(hidden_size, out_middle_layer),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(out_middle_layer, output_size))
-
-        if node_lvl:
-            self.node_mlp = torch.nn.Sequential(
-                torch.nn.Linear(hidden_size, out_middle_layer),
-                torch.nn.LeakyReLU(),
-                torch.nn.Linear(out_middle_layer, node_feature_dims))
-
-    def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
-    def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
-
-    def forward(self, input_raw, pack=False, input_len=None):
-        input = self.input(input_raw)  # embedding
-        if pack: input = torch.nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
-
-        output_raw, self.hidden = self.rnn(input, self.hidden)        
-        if pack: output_raw = torch.nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
-        else: output_raw_1 = self.output(output_raw) # return hidden state at each time step
-
-        if self.node_lvl:
-            node_pred = self.node_mlp(output_raw)
-            return output_raw_1, node_pred
-        else: return output_raw_1
-
-
 def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights):
 
     rnn.train()
@@ -290,6 +110,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
 
     return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
+
 @torch.no_grad()
 def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
     rnn.eval()
@@ -302,6 +123,7 @@ def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
         loss_sum_nodes += node_loss.data
 
     return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+
 
 def fit_batch(data, rnn, output, node_weights, edge_weights):
     # ([bs, max_num_node, max_prev_node, edge_feature])
@@ -399,6 +221,7 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     loss = edge_loss + node_loss
     return loss, edge_loss, node_loss
 
+
 @torch.no_grad()
 def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
     rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand    
@@ -486,150 +309,7 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
     return Data(x=x.to(torch.float32), edge_index=edge_idx.to(torch.long),edge_attr=edge_attr.to(torch.float32)).to(device)
 
 
-def save_smiles(smiles, path, filename, ext='.txt'):
-    '''
-    saves smiles in a file at path
-    extension can be provided in filename or as separate arg
-    args:
-        - smiles str iterable 
-        - path directory where to save smiles 
-        - filename name of the file, must not have extension
-    '''
-    path_to_file = os.path.join(path, filename)
-    filename_ext = os.path.splitext(path_to_file)[-1].lower()
-    if not filename_ext:
-        if ext not in ['.txt', '.smiles']:
-            raise f"extension {ext} not valid"
-        path_to_file += ext
-
-    # path_to_file = generate_file(path, filename)
-    with open(path_to_file, "w+") as f:
-        f.writelines("%s\n" % smi for smi in smiles)
-
-
-def get_generator():
-    # NODE LEVEL AND ABSENCE NET embeddings and hidden sizes
-    embedding_size_rnn = 256 *4
-    hidden_size_rnn = 256 *4
-
-    # EDGE LEVEL embeddings and hidden sizes
-    embedding_size_rnn_output = 256 *3
-    hidden_size_rnn_output = 256 * 3
-    out_edge_level = hidden_size_rnn_output
-    num_layers = 4
-
-    rnn = GRU_plain(input_size=node_feature_dims + edge_feature_dims * max_prev_node,                    
-        num_layers=num_layers,
-        embedding_size=embedding_size_rnn,
-        hidden_size=hidden_size_rnn,
-        output_size=hidden_size_rnn_output,
-        node_lvl=True,
-        out_middle_layer=hidden_size_rnn_output)
-
-    output = GRU_plain(input_size=edge_feature_dims,                    
-        num_layers=num_layers,
-        embedding_size=embedding_size_rnn_output,
-        hidden_size=hidden_size_rnn_output,
-        output_size=edge_feature_dims,
-        out_middle_layer=out_edge_level)
-    
-    return rnn, output
-
-#! HERE
-train_data = "./guacamol/guacamol_v1_train.smiles"
-valid_data = "./guacamol/guacamol_v1_valid.smiles"
-guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
-atom2num = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
-bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
-
-# train_guac_mols = mols_from_file(train_data, True)
-# valid_guac_mols = mols_from_file(valid_data, True)
-# train_data = rdkit2pyg([train_guac_mols[3]])  
-# valid_data = rdkit2pyg([valid_guac_mols])
-
-#!-------------------------------------------
-train_guac_mols = mols_from_file(guacm_smiles, True)
-valid_guac_mols = train_guac_mols
-train_data = rdkit2pyg([train_guac_mols[4]])  
-valid_data = train_data
-#!-------------------------------------------
-
-# atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
-
-num2atom = {v:k for k,v in atom2num.items()}
-nweights = {
-    'C': 0.03238897867833534,
-    'Br': 14.044943820224718,
-    'N': 0.21620219229022983,
-    'O': 0.2177273617975571,
-    'S': 1.6680567139282736,
-    'Cl': 2.872737719046251,
-    'F': 1.754693805930865,
-    'P': 37.735849056603776,
-    'I': 100.0,
-    'B': 416.6666666666667,
-    'Si': 454.54545454545456,
-    'Se': 833.3333333333334
-}
-nweights_list = [nweights[k] for k in atom2num]
-
-
-num2bond = {v: k for k, v in bond2num.items()}
-bweights = { BT.SINGLE: 4.663287337775892, BT.AROMATIC: 4.77780803722868, BT.DOUBLE: 34.74514436607484, BT.TRIPLE: 969.9321047526673 }
-bweights_list = [bweights[k] for k in bond2num]
-
-
-
-device, cuda, train_log, val_log = setup()
-max_num_node = 88
-node_feature_dims = 12
-edge_feature_dims = 5
-max_prev_node = max_num_node - 1
-LR = 1e-5
-# wd = 7e-3
-
-train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE
-bweights_list.insert(0, 1500)
-node_weights = torch.tensor(nweights_list) 
-edge_weights = torch.tensor(bweights_list) 
-
-rnn, output = get_generator()
-optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd)
-optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)  # , weight_decay=wd)
-rnn.apply(weight_init)
-output.apply(weight_init)
-if cuda:
-    rnn.to(device)
-    output.to(device)
-
-
-epoch, max_epoch = 1, 7001
-scheduler1 = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-
-while epoch <= max_epoch:
-    loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
-                                                            data_loader_=train_dataset_loader,
-                                                            optimizer_rnn=optimizer_rnn,
-                                                            optimizer_output=optimizer_output,
-                                                            node_weights=node_weights,
-                                                            edge_weights=edge_weights)
-
-    scheduler1.step()
-    scheduler2.step()
-    epoch += 1
-    if epoch % 100 == 0:
-        train_log.info(
-        f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-    # if epoch % 100 == 0:
-    #     loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
-    #     val_log.info(
-    #             f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-
-    
-# ------------------------------------------------------------------------------------------
-Ns = [10]#, 60000, 110000, 160000, 210000]
-
+@torch.no_grad()
 def generate_mols(N):
     to_draw = []
     for idx in range(N):
@@ -646,5 +326,162 @@ def generate_mols(N):
     save_smiles(smiles_, ".", filename, "smiles")
 
 
-for i in Ns: generate_mols(i)
+#! --- GET DATA ---
+train_data = "./guacamol/guacamol_v1_train.smiles"
+valid_data = "./guacamol/guacamol_v1_valid.smiles"
+guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
+
+# train_guac_mols = mols_from_file(train_data, True)
+# valid_guac_mols = mols_from_file(valid_data, True)
+# train_data = rdkit2pyg([train_guac_mols[3]])  
+# valid_data = rdkit2pyg([valid_guac_mols])
+
+train_guac_mols = mols_from_file(guacm_smiles, True)
+valid_guac_mols = train_guac_mols
+train_data = rdkit2pyg([train_guac_mols[4]])  # train_guac_mols[:50]
+valid_data = train_data
+# atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
+#!-------------------------------------------
+
+#! --- GET WEIGHTS ---
+nweights = {
+    'C':    0.03238897867833534,
+    'Br':   14.044943820224718,
+    'N':    0.21620219229022983,
+    'O':    0.2177273617975571,
+    'S':    1.6680567139282736,
+    'Cl':   2.872737719046251,
+    'F':    1.754693805930865,
+    'P':    37.735849056603776,
+    'I':    100.0,
+    'B':    416.6666666666667,
+    'Si':   454.54545454545456,
+    'Se':   833.3333333333334
+}
+bweights = { 
+    BT.SINGLE:      4.663287337775892, 
+    BT.AROMATIC:    4.77780803722868, 
+    BT.DOUBLE:      34.74514436607484, 
+    BT.TRIPLE:      969.9321047526673 
+}
+
+nweights_list = [nweights[k] for k in atom2num]
+bweights_list = [bweights[k] for k in bond2num]
+bweights_list.insert(0, 1500)
+node_weights = torch.tensor(nweights_list) 
+edge_weights = torch.tensor(bweights_list) 
+#!-------------------------------------------
+
+#! --- SET UP EXPERIMENT ---
+LR, wd = 1e-5, 5e-4
+epoch, max_epoch = 1, 6001
+device, cuda, train_log, val_log = setup()
+train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
+rnn, output = get_generator()
+rnn.apply(weight_init)
+output.apply(weight_init)
+optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd)
+optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)  # , weight_decay=wd)
+scheduler1 = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+scheduler2 = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LR, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+#!-------------------------------------------
+
+# for module_name, module in rnn.named_children():
+#     print(module_name, module)
+#     module.register_forward_hook(partial(append_stats))
+
+# layer_means_rnn = [[] for _ in rnn.named_children()]
+# layer_stds_rnn  = [[] for _ in rnn.named_children()]
+
+# layer_means_rnn = { module_name: [] for module_name, module in rnn.named_children() }
+# layer_stds_rnn = { module_name: [] for module_name, module in rnn.named_children() }
+
+
+# for el in rnn.get_layers():
+#     try:
+#         for layer in el:
+#             print(layer)
+#     except:
+#         print(el)
+
+# layer_means_rnn, layer_stds_rnn = {}, {}
+# for _, module in rnn.named_children():
+#     if isinstance(module, nn.GRU):
+#         layer_means_rnn[f'{module._get_name()}_{0}'] = []
+#         layer_means_rnn[f'{module._get_name()}_{1}'] = []
+#         layer_stds_rnn[f'{module._get_name()}_{0}'] = []
+#         layer_stds_rnn[f'{module._get_name()}_{1}'] = []
+#     else:
+#         layer_means_rnn[module._get_name()] = []
+#         layer_stds_rnn[module._get_name()] = []
+
+
+
+# def append_(i, module, input, output):
+#     module_name = module._get_name()
+#     if isinstance(module, nn.GRU):
+#         for ii in range(0,2):
+#             layer_means_rnn[f'{module_name}_{ii}'].append(output[ii].detach().cpu().numpy().mean())
+#             layer_stds_rnn[f'{module_name}_{ii}'].append(output[ii].detach().cpu().numpy().std())
+#     else:
+#         layer_means_rnn[module_name].append(output.detach().cpu().numpy().mean())
+#         layer_stds_rnn[module_name].append(output.detach().cpu().numpy().std())
+
+# for i, (module_name, module) in enumerate(rnn.named_children()):
+#     module.register_forward_hook(partial(append_, i))
+#     print(module_name, module)
+
+
+VALIDATION, GENERATE = False, True
+while epoch <= max_epoch:
+    loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
+                                                            data_loader_=train_dataset_loader,
+                                                            optimizer_rnn=optimizer_rnn,
+                                                            optimizer_output=optimizer_output,
+                                                            node_weights=node_weights,
+                                                            edge_weights=edge_weights)
+
+    scheduler1.step()
+    scheduler2.step()
+    if epoch % 10 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+    if VALIDATION and epoch % 100 == 0:
+        loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
+        val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+    epoch += 1
+
+    
+
+# for color, k in enumerate(layer_stds_rnn.keys()):
+#     plt.plot([i for i in range(len(layer_means_rnn[k]))], layer_means_rnn[k], label=f'{k} mean'.format(i=color))
+# plt.legend(loc='best')
+# plt.savefig("./meansRNN.png")
+
+# plt.cla() 
+# plt.clf() 
+
+# for color, k in enumerate(layer_stds_rnn.keys()):
+#     plt.plot([i for i in range(len(layer_stds_rnn[k]))], layer_stds_rnn[k], label=f'{k} std'.format(i=color))
+# plt.legend(loc='best')
+# plt.savefig("./stdsRNN.png")
+
+
+
+
+# x = [i for i in range(len(layer_means_rnn))]
+# y = layer_means_rnn
+# plt.xlabel("epoch")
+# plt.ylabel("act val")
+# # plt.title("A test graph")
+# for i in range(len(y[0])):
+#     plt.plot(x,[pt[i] for pt in y],label = 'id %s'%i)
+# plt.legend()
+# plt.show()
+# plt.imsave('./foo.png')
+
+# ------------------------------------------------------------------------------------------
+
+
+if GENERATE:
+    Ns = [10]#, 60000, 110000, 160000, 210000]
+    for i in Ns: generate_mols(i)
 

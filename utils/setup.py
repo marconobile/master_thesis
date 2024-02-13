@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import random
+from model import get_generator
 import torch
 
 
@@ -43,3 +44,25 @@ def setup():
         torch.backends.cudnn.deterministic = False
 
     return device, cuda, train_log, val_log
+
+
+def load_nets(cuda, device, to_be_loaded):  
+    ''' 
+    to_be_loaded = int(last_epoch)
+    '''
+    path = "./weights"
+    rnn, output = get_generator()
+    PATH1 = path + f'/nodeRNN_checkpoint_{to_be_loaded}.pth'
+    if cuda: checkpoint1 = torch.load(PATH1)
+    else: checkpoint1 = torch.load(PATH1, map_location='cpu')
+    rnn.load_state_dict(checkpoint1['model_state_dict'])
+    PATH2 = path + f'/edgeRNN_checkpoint_{to_be_loaded}.pth'
+    if cuda: checkpoint2 = torch.load(PATH2)
+    else: checkpoint2 = torch.load(PATH2, map_location='cpu')
+    output.load_state_dict(checkpoint2['model_state_dict'])
+
+    rnn.to(device)
+    output.to(device)
+    rnn.eval()
+    output.eval()
+    return rnn, output

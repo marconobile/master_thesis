@@ -5,7 +5,146 @@ import networkx as nx
 from utils.chem import numpy_to_rdkit, plot_rdkit_svg_grid, valid_score, numpy_to_smiles, novel_score, unique_score
 from rdkit import Chem
 from utils.molecular_metrics import MolecularMetrics
+from torch_geometric.data import Data
+import os
+from mappings import *
+import torch.nn.functional as F
 
+
+from torch_sparse import coalesce
+
+
+def save_smiles(smiles, path, filename, ext='.txt'):
+    '''
+    saves smiles in a file at path
+    extension can be provided in filename or as separate arg
+    args:
+        - smiles str iterable 
+        - path directory where to save smiles 
+        - filename name of the file, must not have extension
+    '''
+    path_to_file = os.path.join(path, filename)
+    filename_ext = os.path.splitext(path_to_file)[-1].lower()
+    if not filename_ext:
+        if ext not in ['.txt', '.smiles']:
+            raise f"extension {ext} not valid"
+        path_to_file += ext
+
+    # path_to_file = generate_file(path, filename)
+    with open(path_to_file, "w+") as f:
+        f.writelines("%s\n" % smi for smi in smiles)
+
+def rdkit2pyg(mols):
+    '''
+    #! TODO: multiprocess
+    :param mols: iterable of rdkit mols
+    :return: list of PyG data objs with one-hot node/edge features
+    '''
+    data_list = []
+    for mol in mols:
+        if mol is None: continue
+        N = mol.GetNumAtoms()
+        type_idx = []
+        for atom in mol.GetAtoms(): type_idx.append(atom2num[atom.GetSymbol()])
+        x = F.one_hot(torch.tensor(type_idx), num_classes=len(atom2num))
+        row, col, bond_idx = [], [], []
+        for bond in mol.GetBonds():
+            start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+            row += [start, end]
+            col += [end, start]
+            bond_idx += 2 * [bond2num[bond.GetBondType()]]
+
+        edge_index = torch.tensor([row, col], dtype=torch.long)
+        edge_attr = F.one_hot(torch.tensor(bond_idx).to(torch.int64),num_classes=len(bond2num)).to(torch.float)
+        edge_index, edge_attr = coalesce(edge_index, edge_attr, N, N)
+        data_list.append(Data(x=x, edge_index=edge_index, edge_attr=edge_attr))
+    return data_list
+
+
+def pyg2rdkit(dataset):
+    def numpy_to_rdkit(adj, nf, ef, sanitize=False):
+        """
+        Converts a molecule from numpy to RDKit format.
+        :param adj: binary numpy array of shape (N, N) 
+        :param nf: numpy array of shape (N, F)
+        :param ef: numpy array of shape (N, N, S)
+        :param sanitize: whether to sanitize the molecule after conversion
+        :return: an RDKit molecule
+        """
+        if Chem is None: raise ImportError('`numpy_to_rdkit` requires RDKit.')
+        mol = Chem.RWMol()
+        for nf_ in nf:
+            # atomic_num = torch.argmax(nf_).item()
+            atomic_num = int(nf_)
+            mol.AddAtom(Chem.Atom(num2atom[atomic_num]))
+
+        for i, j in zip(*np.triu_indices(adj.shape[-1])):
+            if i != j and adj[i, j] == adj[j, i] == 1 and not mol.GetBondBetweenAtoms(int(i), int(j)):
+                bond_type_1 = num2bond[int(ef[i, j, 0])]
+                bond_type_2 = num2bond[int(ef[j, i, 0])]
+                if bond_type_1 == bond_type_2: mol.AddBond(int(i), int(j), bond_type_1)
+
+        mol = mol.GetMol()
+        if sanitize: Chem.SanitizeMol(mol)
+        return mol
+
+    mols_ = []
+    for i, obs in enumerate(dataset):
+        ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
+        ef = torch.zeros((ef_temp.shape[0], ef_temp.shape[1], 1))
+        adj = torch.zeros((ef_temp.shape[0], ef_temp.shape[1]))
+
+        for row in range(ef_temp.shape[0]):
+            for col in range(ef_temp.shape[1]):
+                if int(torch.sum(ef_temp[row, col]).item()) != 0:
+                    ef[row, col, 0] = torch.argmax(ef_temp[row, col]).item()
+                    adj[row, col] = 1
+
+        ef = np.array(ef)
+        adj = np.array(adj)
+
+        adj = adj.astype(int)
+        ef = ef.astype(int)
+
+        nf = np.array([torch.argmax(row).item() for row in obs.x])
+        nf = np.expand_dims(nf, 1)
+        nf = nf.astype(int)
+        mols_.append(numpy_to_rdkit(adj, nf, ef))
+
+    return mols_
+
+
+
+def get_atoms_info(mols):
+    atoms = set()
+    max_num = 0
+    for m in mols:
+        if m.GetNumAtoms() > max_num: max_num = m.GetNumAtoms()
+        for atom in m.GetAtoms(): atoms.add(atom.GetSymbol())
+
+    atom2num = {str(atomType): i for i, atomType in enumerate(atoms)}    
+    num2atom = {v: k for k, v in atom2num.items()}
+    return atom2num, num2atom, max_num
+
+
+def mols_from_file(pathfile: str, drop_none: bool = False):
+    '''
+    takes as input a path/to/file.ext 
+    where ext can be:
+    .sdf, .csv, .txt, .smiles
+    it returns all mols from file
+    if drop_none: drops all mols non valid for rdkit
+    '''
+    filename_ext = os.path.splitext(pathfile)[-1].lower()
+    if filename_ext in ['.sdf']:
+        suppl = Chem.SDMolSupplier(pathfile)
+    elif filename_ext in ['.csv', '.txt', '.smiles']:
+        suppl = Chem.SmilesMolSupplier(pathfile, titleLine=False)
+    else:
+        raise TypeError(f"{filename_ext} not supported")
+    if drop_none:
+        return [x for x in suppl if x is not None]
+    return [x for x in suppl]
 
 
 def mols_txt(epoch, mols_, smiles_, smiles_list):
