@@ -41,16 +41,10 @@ def get_atoms_info(mols):
     atoms = set()
     max_num = 0
     for m in mols:
-        if m.GetNumAtoms() > max_num:
-            max_num = m.GetNumAtoms()
-        for atom in m.GetAtoms():
-            atoms.add(atom.GetSymbol())
+        if m.GetNumAtoms() > max_num: max_num = m.GetNumAtoms()
+        for atom in m.GetAtoms(): atoms.add(atom.GetSymbol())
 
-    atom2num = {}
-
-    for i, atomType in enumerate(atoms):
-        atom2num[str(atomType)] = i
-
+    atom2num = {str(atomType): i for i, atomType in enumerate(atoms)}    
     num2atom = {v: k for k, v in atom2num.items()}
     return atom2num, num2atom, max_num
 
@@ -609,34 +603,34 @@ guac_mols = mols_from_file(guacm_smiles, True)
 
 atom2num = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
 nweights = {
-'C': 0.03238897867833534,
-'Br': 14.044943820224718,
-'N': 0.21620219229022983,
-'O': 0.2177273617975571,
-'S': 1.6680567139282736,
-'Cl': 2.872737719046251,
-'F': 1.754693805930865,
-'P': 37.735849056603776,
-'I': 100.0,
-'B': 416.6666666666667,
-'Si': 454.54545454545456,
-'Se': 833.3333333333334}
-
-bweights = { BT.SINGLE: 4.663287337775892, BT.AROMATIC: 4.77780803722868, BT.DOUBLE: 34.74514436607484, BT.TRIPLE: 969.9321047526673 }
+    'C': 0.03238897867833534,
+    'Br': 14.044943820224718,
+    'N': 0.21620219229022983,
+    'O': 0.2177273617975571,
+    'S': 1.6680567139282736,
+    'Cl': 2.872737719046251,
+    'F': 1.754693805930865,
+    'P': 37.735849056603776,
+    'I': 100.0,
+    'B': 416.6666666666667,
+    'Si': 454.54545454545456,
+    'Se': 833.3333333333334
+}
 
 nweights_list = []
 for k in atom2num: nweights_list.append(nweights[k])    
 
 num2atom = {v:k for k,v in atom2num.items()}
 print(atom2num)
+
 bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
+bweights = { BT.SINGLE: 4.663287337775892, BT.AROMATIC: 4.77780803722868, BT.DOUBLE: 34.74514436607484, BT.TRIPLE: 969.9321047526673 }
 
 bweights_list = []
-for k in bond2num:
-    bweights_list.append(bweights[k])    
-
+for k in bond2num: bweights_list.append(bweights[k])    
 num2bond = {v: k for k, v in bond2num.items()}
-data = rdkit2pyg([guac_mols[1]])  # HERE
+
+data = rdkit2pyg([guac_mols[3]])  # HERE
 
 device, cuda, train_log, test_log = setup()
 max_num_node = 88
@@ -663,9 +657,8 @@ if cuda:
 rnn.apply(weight_init)
 output.apply(weight_init)
 epoch = 1  # starting epoch
-max_epoch = 5001
+max_epoch = 7001
 counter_test = 0
-
 
 # scheRNN = torch.optim.lr_scheduler.ExponentialLR(optimizer_rnn, 1.1)
 # scheOUT = torch.optim.lr_scheduler.ExponentialLR(optimizer_output, 1.1)
