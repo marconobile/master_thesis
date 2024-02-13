@@ -201,25 +201,12 @@ class GRU_plain(torch.nn.Module):
         super(GRU_plain, self).__init__()
         self.hidden_size = hidden_size
         self.node_lvl = node_lvl
-        self.out_middle_layer = out_middle_layer
         self.num_layers = num_layers
-        self.input = torch.nn.Linear(
-            input_size, embedding_size)  # embedding layer
 
-        self.rnn = torch.nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers,
-                                batch_first=True)
+        self.hidden = None  # need initialize before forward run
+        self.rnn = torch.nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
 
-        # self.rnn = torch.nn.RNNCell(input_size, hidden_size, bias=True, nonlinearity='tanh', device=device)
-
-        # torch.nn.Sequential(
-        #     torch.nn.RNNCell(input_size, hidden_size, bias=True, nonlinearity='tanh', device=device),
-        #     torch.nn.LayerNorm(hidden_size), 
-        #     torch.nn.RNNCell(hidden_size, hidden_size, bias=True, nonlinearity='tanh', device=device),
-        #     torch.nn.LayerNorm(hidden_size), 
-        #     torch.nn.RNNCell(hidden_size, hidden_size, bias=True, nonlinearity='tanh', device=device),
-        #     torch.nn.LayerNorm(hidden_size)
-        # )
-
+        self.input = torch.nn.Linear(input_size, embedding_size)  # embedding layer
         self.output = torch.nn.Sequential(
             torch.nn.Linear(hidden_size, out_middle_layer),
             torch.nn.LeakyReLU(),
@@ -231,48 +218,21 @@ class GRU_plain(torch.nn.Module):
                 torch.nn.LeakyReLU(),
                 torch.nn.Linear(out_middle_layer, node_feature_dims))
 
-        # initialize:
-        self.hidden = None  # need initialize before forward run
-    #     self.init_layers()
-
-    # def init_layers(self):
-    #     for name, param in self.rnn.named_parameters():
-    #         if 'bias' in name:
-    #             torch.nn.init.constant_(param, 0.25).to(device)
-    #         elif 'weight' in name:
-    #             torch.nn.init.xavier_uniform_(
-    #                 param, gain=torch.nn.init.calculate_gain('sigmoid')).to(device)
-
-    #     for m in self.modules():
-    #         if isinstance(m, torch.nn.Linear):
-    #             # torch.nn.init.xavier_uniform_(
-    #             #     m.weight.data, gain=torch.nn.init.calculate_gain('leaky_relu')).to(device)
-    #             m.weight.data = m.weight.data *.01
-
     def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
     def forward(self, input_raw, pack=False, input_len=None):
-        input_raw.to(device)
         input = self.input(input_raw)  # embedding
-
-        if pack:  # we take the embedded input
-            input = torch.nn.utils.rnn.pack_padded_sequence(
-                input, input_len, batch_first=True)
+        if pack: input = torch.nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
 
         output_raw, self.hidden = self.rnn(input, self.hidden)        
-        if pack:
-            output_raw = torch.nn.utils.rnn.pad_packed_sequence(
-                output_raw, batch_first=True)[0]
-        else:
-            # return hidden state at each time step
-            output_raw_1 = self.output(output_raw)
+        if pack: output_raw = torch.nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
+        else: output_raw_1 = self.output(output_raw) # return hidden state at each time step
 
         if self.node_lvl:
             node_pred = self.node_mlp(output_raw)
             return output_raw_1, node_pred
-        else:
-            return output_raw_1
+        else: return output_raw_1
 
 
 def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, device):
@@ -607,7 +567,7 @@ node_weights = torch.tensor(nweights_list)
 edge_weights = torch.tensor(bweights_list) 
 
 rnn, output = get_generator()
-optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd) # 1E-3
+optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)  # , weight_decay=wd)
 optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)  # , weight_decay=wd)
 
 if cuda:
@@ -656,10 +616,7 @@ while epoch <= max_epoch:
 # plt.plot([i for i in range(lrout)], lrout)
 
 # ------------------------------------------------------------------------------------------
-Ns = [5]#, 60000, 110000, 160000, 210000]
-
-# for each el in list, call f with el
-# from utils.data_utils import get_smiles
+Ns = [10]#, 60000, 110000, 160000, 210000]
 
 def generate_mols(N):
     to_draw = []
