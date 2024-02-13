@@ -1,7 +1,5 @@
 import torch.nn.init as init
 import torch.nn as nn
-import networkx as nx
-from supervised_tools.supervised_training import supervised_training
 from supervised_tools.create_train_val_data import create_train_val_dataloaders
 from torch_geometric.utils import to_dense_adj
 import numpy as np
@@ -14,8 +12,8 @@ from rdkit import Chem
 from utils.setup import setup
 import torch
 print(torch.__version__)
-from torch_lr_finder import LRFinder
-import matplotlib.pyplot as plt
+# from torch_lr_finder import LRFinder
+# import matplotlib.pyplot as plt
 
 def mols_from_file(pathfile: str, drop_none: bool = False):
     '''

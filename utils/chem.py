@@ -1,6 +1,5 @@
 import networkx as nx
 import numpy as np
-from args import Args
 
 try:
     from rdkit import Chem as rdc
@@ -15,7 +14,7 @@ except ImportError:
     rdc = None
     rdb = None
 
-args = Args()
+
 
 # if args.ZINC_filtered == False:
 #     BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
