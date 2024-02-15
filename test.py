@@ -327,8 +327,11 @@ guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 
 train_guac_mols = mols_from_file(guacm_smiles, True)
 valid_guac_mols = train_guac_mols
-train_data = rdkit2pyg([train_guac_mols[3]])  # train_guac_mols[:50]
-print(Chem.MolToSmiles(train_guac_mols[3]))
+
+obs = train_guac_mols[5]
+
+train_data = rdkit2pyg([obs])  # train_guac_mols[:50]
+print(Chem.MolToSmiles(obs))
 
 valid_data = train_data
 # atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
@@ -366,7 +369,7 @@ edge_weights = torch.tensor(bweights_list)
 #! --- SET UP EXPERIMENT ---
 LRrnn, LRout = 1e-5, 1e-5
 wd = 5e-4
-epoch, max_epoch = 1, 5001
+epoch, max_epoch = 1, 10201
 device, cuda, train_log, val_log = setup()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
 rnn, output = get_generator()
