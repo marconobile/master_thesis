@@ -1,5 +1,6 @@
 from functools import partial
 import torch.nn as nn
+import mappings
 from model import get_generator
 from supervised_tools.create_train_val_data import create_train_val_dataloaders
 from torch_geometric.utils import to_dense_adj
@@ -15,10 +16,12 @@ import matplotlib.pyplot as plt
 # from torch_lr_finder import LRFinder
 from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdkit, save_smiles
 from mappings import *
-
-
 import torch.nn as nn
 import torch.nn.init as init
+
+cuda = True if torch.cuda.is_available() else False
+device = torch.device("cuda:0" if cuda else "cpu")
+
 def weight_init(m):
     '''
     Usage:
@@ -88,26 +91,19 @@ def weight_init(m):
 
 
 def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights):
-
     rnn.train()
     output.train()
     loss_sum, loss_sum_edges, loss_sum_nodes = 0, 0, 0
-
     for batch_idx, data in enumerate(data_loader_):
-
         rnn.zero_grad()
         output.zero_grad()
-
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-
         loss.backward(retain_graph=True)
         optimizer_output.step()
         optimizer_rnn.step()
-
         loss_sum += loss.data
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-
     return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
@@ -121,7 +117,6 @@ def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
         loss_sum += loss.data
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-
     return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
@@ -217,9 +212,7 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 
     edge_loss = F.nll_loss(y_pred.to(device), indices_edges.to(device), reduction='mean', weight=edge_weights.to(torch.float32).to(device))
     node_loss = F.nll_loss(node_prediction.to(device), indices_nodes.to(device), reduction='mean', weight=node_weights.to(torch.float32).to(device))
-
-    loss = edge_loss + node_loss
-    return loss, edge_loss, node_loss
+    return edge_loss + node_loss, edge_loss, node_loss
 
 
 @torch.no_grad()
@@ -244,8 +237,6 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
 
         # token Edge lvl - randn best result
         output_x_step = torch.ones(test_batch_size, 1, edge_feature_dims).to(device)
-
-        
         edge_rnn_step = 0
         idx = [k for k in range(i, -1, -1)] # this list is used to create edg_idx
         for j in range(min(max_prev_node, i + 1)): # Edge/Abs RNN for-loop          
@@ -293,7 +284,6 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
     x = torch.reshape(x_temp, (x_temp.shape[0], x_temp.shape[-1])).to(device)
 
     if len(edg_idx_list) != 0:
-        # Edge_idx can be non-differentiable
         edge_idx_temp = torch.stack(edg_idx_list).to(device)
         edge_idx = torch.transpose(edge_idx_temp, 0, 1).to(device)
 
@@ -309,7 +299,7 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
 
 
 @torch.no_grad()
-def generate_mols(N):
+def generate_mols(N, rnn, output, epoch):
     to_draw = []
     for idx in range(N):
         print(f"{idx+1}/{N}", end='\r')

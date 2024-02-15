@@ -49,6 +49,7 @@ class GRU_plain(nn.Module):
         self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
 
         self.output1 = nn.Linear(hidden_size, out_middle_layer)
+        self.output_norm = nn.LayerNorm(out_middle_layer)
         self.output2 = nn.Linear(out_middle_layer, output_size)
                     
         if node_lvl:
@@ -89,6 +90,7 @@ class GRU_plain(nn.Module):
         # pass them thru the rnn
         output_raw, self.hidden = self.rnn(input, self.hidden)        
 
+        output_raw = self.shared_norm(output_raw)
         # unpack sequences
         if pack: 
             output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
@@ -99,6 +101,7 @@ class GRU_plain(nn.Module):
 
         if self.node_lvl:
             node_pred = self.node_mlp1(output_raw)
+            node_pred = self.node_norm(node_pred)
             node_pred = F.leaky_relu(node_pred)
             node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred

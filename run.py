@@ -1,4 +1,3 @@
-
 from test import * 
 
 VALIDATION, GENERATE = False, True
@@ -20,5 +19,5 @@ memorize_batch(max_epoch, rnn, output, train_dataset_loader, optimizer_rnn, opti
 
 if GENERATE:
     Ns = [10]#, 60000, 110000, 160000, 210000]
-    for i in Ns: generate_mols(i)
+    for i in Ns: generate_mols(i,rnn, output, epoch)
 

@@ -12,15 +12,12 @@ def process_subset(subset, max_num_node, max_prev_node):
     :return: Graph_sequence_sampler_pytorch data object
     '''
 
-    G_list = []  # list of undirected networkx graphs
+    G_list = []         # list of undirected nx graphs
     node_attr_list = [] # list of node matrices
+    adj_all = []        # list of A(s) with edge features as elements a_ij [NxNxEf]
     for g in subset:
-        node_attr_list.append(g.x)  # node matrix
-        nxG = to_networkx(g)
-        G_list.append(to_undirected(nxG))
-
-    adj_all = []  # list of A(s) with edge features as elements a_ij [NxNxEf]
-    for g in subset:
+        node_attr_list.append(g.x)
+        G_list.append(to_undirected(to_networkx(g)))
         adj_all.append(to_dense_adj(edge_index=g.edge_index, batch=None, edge_attr=g.edge_attr))
 
     return Graph_sequence_sampler_pytorch(Graph_list=G_list, node_attr_list=node_attr_list, adj_all=adj_all,
