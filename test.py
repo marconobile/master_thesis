@@ -174,7 +174,7 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
     output_y.to(device)
 
     # OUTPUTS
-    h, node_prediction = rnn(x, input_len=y_len)
+    h, node_prediction = rnn(x, pack=True, input_len=y_len)
 
     h = torch.nn.utils.rnn.pack_padded_sequence(h, y_len, batch_first=True).data  # get packed hidden vector
     idx = torch.LongTensor([i for i in range(h.size(0) - 1, -1, -1)]).to(device)
@@ -182,7 +182,7 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 
     hidden_null = torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1)).to(device) # num_layers, batch_size, hidden_size
     output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
-    y_pred = output(output_x, input_len=output_y_len)
+    y_pred = output(output_x, pack=True, input_len=output_y_len)
 
     # OUTPUT LAYERS
     y_pred = F.log_softmax(y_pred, dim=2)
@@ -252,7 +252,6 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
             output_y_pred_step_out = output(output_x_step) # prediction for each and every prev node
             output.hidden = output.hidden.data.to(device)
             output_x_step_argmax = F.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)       
-            output_x_step_argmax = F.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)            
      
             if torch.argmax(output_x_step_argmax, dim=-1) != 0:
                 if i + 1 <= max_prev_node:                    
@@ -375,112 +374,37 @@ edge_weights = torch.tensor(bweights_list)
 #!-------------------------------------------
 
 #! --- SET UP EXPERIMENT ---
-LRrnn, LRout, wd = 1e-5, 3e-6, 5e-4
+LRrnn, LRout = 1e-5, 1e-5
+wd = 5e-4
 epoch, max_epoch = 1, 5001
 device, cuda, train_log, val_log = setup()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
 rnn, output = get_generator()
 rnn.apply(weight_init)
 output.apply(weight_init)
+
+rnn.ad_hoc_init()
+output.ad_hoc_init()
 optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LRrnn)  # , weight_decay=wd)
 optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LRout)  # , weight_decay=wd)
 scheduler_rnn = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-#!-------------------------------------------
-
-# for module_name, module in rnn.named_children():
-#     print(module_name, module)
-#     module.register_forward_hook(partial(append_stats))
-
-# layer_means_rnn = [[] for _ in rnn.named_children()]
-# layer_stds_rnn  = [[] for _ in rnn.named_children()]
-
-# layer_means_rnn = { module_name: [] for module_name, module in rnn.named_children() }
-# layer_stds_rnn = { module_name: [] for module_name, module in rnn.named_children() }
 
 
-# for el in rnn.get_layers():
-#     try:
-#         for layer in el:
-#             print(layer)
-#     except:
-#         print(el)
-
-# layer_means_rnn, layer_stds_rnn = {}, {}
-# for _, module in rnn.named_children():
-#     if isinstance(module, nn.GRU):
-#         layer_means_rnn[f'{module._get_name()}_{0}'] = []
-#         layer_means_rnn[f'{module._get_name()}_{1}'] = []
-#         layer_stds_rnn[f'{module._get_name()}_{0}'] = []
-#         layer_stds_rnn[f'{module._get_name()}_{1}'] = []
-#     else:
-#         layer_means_rnn[module._get_name()] = []
-#         layer_stds_rnn[module._get_name()] = []
-
-
-
-# def append_(i, module, input, output):
-#     module_name = module._get_name()
-#     if isinstance(module, nn.GRU):
-#         for ii in range(0,2):
-#             layer_means_rnn[f'{module_name}_{ii}'].append(output[ii].detach().cpu().numpy().mean())
-#             layer_stds_rnn[f'{module_name}_{ii}'].append(output[ii].detach().cpu().numpy().std())
-#     else:
-#         layer_means_rnn[module_name].append(output.detach().cpu().numpy().mean())
-#         layer_stds_rnn[module_name].append(output.detach().cpu().numpy().std())
-
-# for i, (module_name, module) in enumerate(rnn.named_children()):
-#     module.register_forward_hook(partial(append_, i))
-#     print(module_name, module)
-
-
-# VALIDATION, GENERATE = False, True
-# while epoch <= max_epoch:
-#     loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
-#                                                             data_loader_=train_dataset_loader,
-#                                                             optimizer_rnn=optimizer_rnn, optimizer_output=optimizer_output,
-#                                                             node_weights=node_weights, edge_weights=edge_weights)
-#     scheduler_rnn.step()
-#     scheduler_output.step()
-#     if epoch % 100 == 0: train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-#     if VALIDATION and epoch % 100 == 0:
-#         loss_this_epoch, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
-#         val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-#     epoch += 1
-
-    
-
-# # for color, k in enumerate(layer_stds_rnn.keys()):
-# #     plt.plot([i for i in range(len(layer_means_rnn[k]))], layer_means_rnn[k], label=f'{k} mean'.format(i=color))
-# # plt.legend(loc='best')
-# # plt.savefig("./meansRNN.png")
-
-# # plt.cla() 
-# # plt.clf() 
-
-# # for color, k in enumerate(layer_stds_rnn.keys()):
-# #     plt.plot([i for i in range(len(layer_stds_rnn[k]))], layer_stds_rnn[k], label=f'{k} std'.format(i=color))
-# # plt.legend(loc='best')
-# # plt.savefig("./stdsRNN.png")
-
-
-
-
-# # x = [i for i in range(len(layer_means_rnn))]
-# # y = layer_means_rnn
-# # plt.xlabel("epoch")
-# # plt.ylabel("act val")
-# # # plt.title("A test graph")
-# # for i in range(len(y[0])):
-# #     plt.plot(x,[pt[i] for pt in y],label = 'id %s'%i)
-# # plt.legend()
-# # plt.show()
-# # plt.imsave('./foo.png')
-
-# # ------------------------------------------------------------------------------------------
-
-
-# if GENERATE:
-#     Ns = [10]#, 60000, 110000, 160000, 210000]
-#     for i in Ns: generate_mols(i)
+def memorize_batch(max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
+    global epoch
+    rnn.train()
+    output.train()    
+    for _, data in enumerate(data_loader_): data = data
+    while epoch <= max_epoch:
+        rnn.zero_grad()
+        output.zero_grad()
+        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
+        loss.backward(retain_graph=True)
+        optimizer_output.step()
+        optimizer_rnn.step()
+        scheduler_rnn.step()
+        scheduler_output.step()
+        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
+        epoch += 1
 
