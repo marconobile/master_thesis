@@ -80,10 +80,10 @@ def weight_init(m):
                 init.normal_(param.data)
 
 
-def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights):
+def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, rnn_scheduler= None, output_scheduler= None):
     rnn.train()
     output.train()
-    loss_sum, loss_sum_edges, loss_sum_nodes = 0, 0, 0
+    loss_sum_edges, loss_sum_nodes = 0, 0
     for batch_idx, data in enumerate(data_loader_):
         rnn.zero_grad()
         output.zero_grad()
@@ -91,23 +91,23 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         loss.backward(retain_graph=True)
         optimizer_output.step()
         optimizer_rnn.step()
-        loss_sum += loss.data
+        if rnn_scheduler != None: rnn_scheduler.step()
+        if output_scheduler != None: output_scheduler.step()
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-    return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+    return loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
 @torch.no_grad()
 def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
     rnn.eval()
-    output.eval()
-    loss_sum, loss_sum_edges, loss_sum_nodes = 0, 0, 0
+    output.eval()    
+    loss_sum_edges, loss_sum_nodes = 0, 0
     for batch_idx, data in enumerate(data_loader_):
-        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-        loss_sum += loss.data
+        _, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-    return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+    return loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
 def fit_batch(data, rnn, output, node_weights, edge_weights):
