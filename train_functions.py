@@ -80,7 +80,7 @@ def weight_init(m):
                 init.normal_(param.data)
 
 
-def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, rnn_scheduler= None, output_scheduler= None):
+def train_rnn_epoch(rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
     rnn.train()
     output.train()
     loss_sum_edges, loss_sum_nodes = 0, 0
@@ -89,13 +89,11 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward(retain_graph=True)
-        optimizer_output.step()
-        optimizer_rnn.step()
-        if rnn_scheduler != None: rnn_scheduler.step()
-        if output_scheduler != None: output_scheduler.step()
+        optimizer.step()        
+        if scheduler != None: scheduler.step()
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-    return loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+    return loss / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
 @torch.no_grad()
@@ -104,10 +102,10 @@ def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
     output.eval()    
     loss_sum_edges, loss_sum_nodes = 0, 0
     for batch_idx, data in enumerate(data_loader_):
-        _, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
+        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-    return loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+    return loss / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
 def fit_batch(data, rnn, output, node_weights, edge_weights):
@@ -306,7 +304,7 @@ def generate_mols(N, rnn, output, epoch):
     save_smiles(smiles_, ".", filename, "smiles")
 
 
-def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
+def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
     rnn.train()
     output.train()    
     for _, data in enumerate(data_loader_): data = data
@@ -315,10 +313,8 @@ def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer_rnn, o
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward(retain_graph=True)
-        optimizer_output.step()
-        optimizer_rnn.step()
-        scheduler_rnn.step()
-        scheduler_output.step()
+        optimizer.step()
+        if scheduler != None: scheduler.step()
         if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
         epoch += 1
 
