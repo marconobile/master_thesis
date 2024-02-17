@@ -76,17 +76,18 @@ class GRU_plain(nn.Module):
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
     def forward(self, input_raw, pack=False, input_len=None):
-        # embed binary vector
-        input = self.embedding(input_raw)
-        # pack sequences
-        if pack: 
-            input = nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
-        # pass them thru the rnn
-        output_raw, self.hidden = self.rnn(input, self.hidden)        
 
-        # unpack sequences
+        input_emb = self.embedding(input_raw)
+
         if pack: 
+            input = nn.utils.rnn.pack_padded_sequence(input_emb, input_len, batch_first=True)
+            output_raw, self.hidden = self.rnn(input, self.hidden)        
             output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
+        else:
+            output_raw, self.hidden = self.rnn(input_emb, self.hidden)        
+        
+        if self.node_lvl:
+            output_raw = input_emb + output_raw
 
         output_raw_1 = self.output1(output_raw)
         output_raw_1 = F.leaky_relu(output_raw_1)
@@ -97,8 +98,8 @@ class GRU_plain(nn.Module):
             node_pred = F.leaky_relu(node_pred)
             node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred
-        else: 
-            return output_raw_1
+
+        return output_raw_1
 
     def get_save_path(self): return os.getcwd() + "./weights/"
     def save(self, epoch):

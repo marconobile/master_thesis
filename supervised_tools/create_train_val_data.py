@@ -24,7 +24,7 @@ def process_subset(subset, max_num_node, max_prev_node):
                                           max_num_node=max_num_node, max_prev_node=max_prev_node)
 
 
-def create_train_val_dataloaders(trainset, valset, max_num_node, max_prev_node, num_workers=1):
+def create_train_val_dataloaders(trainset, valset, max_num_node, max_prev_node, bs, num_workers=1):
     '''
     for supervised training takes as input:
     - dataset: a list of pyg Data obs,
@@ -33,7 +33,7 @@ def create_train_val_dataloaders(trainset, valset, max_num_node, max_prev_node, 
     '''
     train_set = process_subset(trainset, max_num_node, max_prev_node)
     val_set = process_subset(valset, max_num_node, max_prev_node)
-    train_dataset_loader = DataLoader(train_set, batch_size=32, shuffle=True, num_workers=num_workers)
-    val_dataset_loader = DataLoader(val_set, batch_size=32, shuffle=True, num_workers=num_workers)
+    train_dataset_loader = DataLoader(train_set, batch_size=bs, shuffle=True, num_workers=num_workers)
+    val_dataset_loader = DataLoader(val_set, batch_size=bs, shuffle=True, num_workers=num_workers)
     return train_dataset_loader, val_dataset_loader
 

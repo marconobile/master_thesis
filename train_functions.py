@@ -88,7 +88,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer, node_weights, edge_wei
         rnn.zero_grad()
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-        loss.backward(retain_graph=True)
+        loss.backward()
         optimizer.step()        
         if scheduler != None: scheduler.step()
         loss_sum_edges += edge_loss.data
@@ -312,7 +312,7 @@ def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer, node_
         rnn.zero_grad()
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-        loss.backward(retain_graph=True)
+        loss.backward()
         optimizer.step()
         if scheduler != None: scheduler.step()
         if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
