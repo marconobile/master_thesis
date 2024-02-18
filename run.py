@@ -17,6 +17,24 @@ from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdki
 from train_functions import *
 
 
+
+def memorize_batch_single_opt(max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
+    rnn.train()
+    output.train()    
+    epoch = 1
+    for _, data in enumerate(data_loader_): data = data
+    while epoch <= max_epoch:
+        rnn.zero_grad()
+        output.zero_grad()
+        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
+        epoch += 1
+    for i in [10]: generate_mols(i,rnn, output, epoch)
+
+
 #! --- GET DATA ---
 guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 train_guac_mols = mols_from_file(guacm_smiles, True)
@@ -72,34 +90,47 @@ optimizer = torch.optim.RMSprop(params, lr=LRrnn)
 scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 
 
-# # MEMORIZATION
+# # # MEMORIZATION
+# # obs = train_guac_mols[5]
+# # print(Chem.MolToSmiles(obs))
+# # train_data = rdkit2pyg([obs])
+# train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, train_data, max_num_node, max_prev_node, bs) #! HERE WORKERS
+# max_epoch = 5000
+# params = list(rnn.parameters()) + list(output.parameters())
+# optimizer = torch.optim.RMSprop(params, lr=LRrnn)
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+# # memorize_batch_single_opt(max_epoch, rnn, output, train_dataset_loader, optimizer, node_weights, edge_weights, scheduler)
 
-# obs = train_guac_mols[5]
-# print(Chem.MolToSmiles(obs))
-# train_data = rdkit2pyg([obs])
 
-train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, train_data, max_num_node, max_prev_node, bs) #! HERE WORKERS
-max_epoch = 5000
 
-params = list(rnn.parameters()) + list(output.parameters())
-optimizer = torch.optim.RMSprop(params, lr=LRrnn)
-scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+# # # GRADIENTS
+grads_dict = {}
+for name, module in rnn.named_modules():
+    for pname, p in module.named_parameters():
+        if ".weight" in pname:
+            grads_dict[pname] = []
 
-def memorize_batch_single_opt(max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
+def get_grads():
+    for name, module in rnn.named_modules():
+        for pname, p in module.named_parameters():
+            if ".weight" in pname:
+                grads_dict[pname].append(p.grad.data)
+
+epoch = 0
+while epoch < max_epoch:
     rnn.train()
-    output.train()    
-    epoch = 1
-    for _, data in enumerate(data_loader_): data = data
-    while epoch <= max_epoch:
+    output.train()
+    loss_all, loss_sum_edges, loss_sum_nodes = 0, 0, 0
+    for batch_idx, data in enumerate(train_dataset_loader):
         rnn.zero_grad()
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward()
-        optimizer.step()
-        scheduler.step()
-        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
-        epoch += 1
-
-memorize_batch_single_opt(max_epoch, rnn, output, train_dataset_loader, optimizer, node_weights, edge_weights, scheduler)
-Ns = [10]
-for i in Ns: generate_mols(i,rnn, output, epoch)
+        get_grads()
+        optimizer.step()        
+        if scheduler != None: scheduler.step()
+        loss_sum_edges += edge_loss.data
+        loss_sum_nodes += node_loss.data
+        loss_all =  loss_sum_edges + loss_sum_nodes
+        print(f"Epoch {epoch}, ", loss / (batch_idx + 1), 'lossedges', loss_sum_edges / (batch_idx + 1), ' lossnodes ',loss_sum_nodes / (batch_idx + 1))
+    epoch +=1
