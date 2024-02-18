@@ -56,6 +56,7 @@ class GRU_plain(nn.Module):
         # if node lvl: returns processed h_to_pass, dims: edgelvl hs
         # if edge lvl: returns edge unnormalized logits, dims: ef
         self.output1 = nn.Linear(hidden_size, out_middle_layer)
+        self.outputNorm = nn.LayerNorm(out_middle_layer)
         self.outputLRelu = nn.LeakyReLU()
         self.output2 = nn.Linear(out_middle_layer, output_size)
         
@@ -104,6 +105,7 @@ class GRU_plain(nn.Module):
             output_raw = input_emb + output_raw
 
         output_raw_1 = self.output1(output_raw)
+        output_raw_1 = self.outputNorm(output_raw_1)
         output_raw_1 = self.outputLRelu(output_raw_1)
         output_raw_1 = self.output2(output_raw_1)
 
