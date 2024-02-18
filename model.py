@@ -45,15 +45,25 @@ class GRU_plain(nn.Module):
         self.hidden_size, self.node_lvl, self.num_layers = hidden_size, node_lvl, num_layers          
         self.hidden = None  # need initialize before forward run
 
-        # Shared layers
+        # Embedding
         self.embedding = nn.Linear(input_size, embedding_size)
+        self.embeddingLRelu = nn.LeakyReLU()
+
+        # RNN
         self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
 
+        # output: 
+        # if node lvl: returns processed h_to_pass, dims: edgelvl hs
+        # if edge lvl: returns edge unnormalized logits, dims: ef
         self.output1 = nn.Linear(hidden_size, out_middle_layer)
+        self.outputLRelu = nn.LeakyReLU()
         self.output2 = nn.Linear(out_middle_layer, output_size)
-                    
+        
+        # node unnormalized logits
         if node_lvl:
             self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer)
+            self.nodeNorm = nn.LayerNorm(out_middle_layer)
+            self.nodeLRelu = nn.LeakyReLU()
             self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)          
 
     def ad_hoc_init(self):
@@ -75,9 +85,13 @@ class GRU_plain(nn.Module):
     def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
+    def get_activation_layers(self):
+        return {"embeddingLRelu": self.embeddingLRelu, "outputLRelu": self.outputLRelu, "nodeLRelu": self.nodeLRelu}
+
     def forward(self, input_raw, pack=False, input_len=None):
 
         input_emb = self.embedding(input_raw)
+        input_emb = self.embeddingLRelu(input_emb)
 
         if pack: 
             input = nn.utils.rnn.pack_padded_sequence(input_emb, input_len, batch_first=True)
@@ -90,12 +104,13 @@ class GRU_plain(nn.Module):
             output_raw = input_emb + output_raw
 
         output_raw_1 = self.output1(output_raw)
-        output_raw_1 = F.leaky_relu(output_raw_1)
+        output_raw_1 = self.outputLRelu(output_raw_1)
         output_raw_1 = self.output2(output_raw_1)
 
         if self.node_lvl:
             node_pred = self.node_mlp1(output_raw)
-            node_pred = F.leaky_relu(node_pred)
+            node_pred = self.nodeNorm(node_pred) 
+            node_pred = self.nodeLRelu(node_pred)
             node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred
 

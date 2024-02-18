@@ -304,9 +304,10 @@ def generate_mols(N, rnn, output, epoch):
     save_smiles(smiles_, ".", filename, "smiles")
 
 
-def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
+def memorize_batch_single_opt(max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
     rnn.train()
     output.train()    
+    epoch = 1
     for _, data in enumerate(data_loader_): data = data
     while epoch <= max_epoch:
         rnn.zero_grad()
@@ -314,7 +315,8 @@ def memorize_batch(epoch, max_epoch, rnn, output, data_loader_, optimizer, node_
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward()
         optimizer.step()
-        if scheduler != None: scheduler.step()
+        scheduler.step()
         if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
         epoch += 1
+    for i in [10]: generate_mols(i,rnn, output, epoch)
 

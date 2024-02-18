@@ -17,24 +17,6 @@ from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdki
 from train_functions import *
 
 
-
-def memorize_batch_single_opt(max_epoch, rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
-    rnn.train()
-    output.train()    
-    epoch = 1
-    for _, data in enumerate(data_loader_): data = data
-    while epoch <= max_epoch:
-        rnn.zero_grad()
-        output.zero_grad()
-        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
-        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
-        epoch += 1
-    for i in [10]: generate_mols(i,rnn, output, epoch)
-
-
 #! --- GET DATA ---
 guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 train_guac_mols = mols_from_file(guacm_smiles, True)
@@ -110,13 +92,17 @@ for name, module in rnn.named_modules():
         if ".weight" in pname:
             grads_dict[pname] = []
 
+@torch.no_grad()
 def get_grads():
     for name, module in rnn.named_modules():
         for pname, p in module.named_parameters():
             if ".weight" in pname:
                 grads_dict[pname].append(p.grad.data)
 
+
+
 epoch = 0
+update = []
 while epoch < max_epoch:
     rnn.train()
     output.train()
@@ -127,6 +113,14 @@ while epoch < max_epoch:
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward()
         get_grads()
+        if scheduler != None: 
+            current_lr = scheduler.get_last_lr()[0]
+        else:
+            current_lr = optimizer.param_groups[0]['lr'][0]
+        
+        with torch.no_grad():
+            update.append([(current_lr* p.grad.std()/p.data.std()).log10().item() for p in rnn.parameters()])
+        
         optimizer.step()        
         if scheduler != None: scheduler.step()
         loss_sum_edges += edge_loss.data
@@ -134,3 +128,4 @@ while epoch < max_epoch:
         loss_all =  loss_sum_edges + loss_sum_nodes
         print(f"Epoch {epoch}, ", loss / (batch_idx + 1), 'lossedges', loss_sum_edges / (batch_idx + 1), ' lossnodes ',loss_sum_nodes / (batch_idx + 1))
     epoch +=1
+
