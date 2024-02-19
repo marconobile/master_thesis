@@ -55,31 +55,31 @@ class GRU_plain(nn.Module):
         # output: 
         # if node lvl: returns processed h_to_pass, dims: edgelvl hs
         # if edge lvl: returns edge unnormalized logits, dims: ef
-        self.output1 = nn.Linear(hidden_size, out_middle_layer)
+        self.output1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
         self.outputNorm = nn.LayerNorm(out_middle_layer)
         self.outputLRelu = nn.LeakyReLU()
         self.output2 = nn.Linear(out_middle_layer, output_size)
         
         # node unnormalized logits
         if node_lvl:
-            self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer)
+            self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
             self.nodeNorm = nn.LayerNorm(out_middle_layer)
             self.nodeLRelu = nn.LeakyReLU()
             self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)          
 
     def ad_hoc_init(self):
         for name, param in self.rnn.named_parameters():
-            if 'bias' in name: nn.init.constant_(param, 0.25)
-            elif 'weight' in name: nn.init.orthogonal_(param, gain=nn.init.calculate_gain('sigmoid'))
+            if 'bias' in name: nn.init.constant_(param, 0.0)
+            elif 'weight' in name: nn.init.kaiming_normal_(param, nonlinearity='sigmoid')
 
         if self.node_lvl:
-            torch.nn.init.xavier_normal_(self.node_mlp1.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
-            torch.nn.init.xavier_normal_(self.node_mlp2.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))            
+            torch.nn.init.kaiming_normal_(self.node_mlp1.weight, nonlinearity='leaky_relu')
+            torch.nn.init.kaiming_normal_(self.node_mlp2.weight, nonlinearity='leaky_relu')            
             self.node_mlp2.weight.data *= 0.01  
             torch.nn.init.zeros_(self.node_mlp2.bias)                  
         else:
-            torch.nn.init.xavier_normal_(self.output1.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
-            torch.nn.init.xavier_normal_(self.output2.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
+            torch.nn.init.kaiming_normal_(self.output1.weight, nonlinearity='leaky_relu')
+            torch.nn.init.kaiming_normal_(self.output2.weight, nonlinearity='leaky_relu')
             self.output2.weight.data *= 0.01
             torch.nn.init.zeros_(self.output2.bias)                  
 

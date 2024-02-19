@@ -53,7 +53,8 @@ def weight_init(m):
         init.constant_(m.bias.data, 0)
     elif isinstance(m, nn.Linear):
         init.xavier_normal_(m.weight.data)
-        init.normal_(m.bias.data)
+        if m.bias != None:
+            init.normal_(m.bias.data)
     elif isinstance(m, nn.LSTM):
         for param in m.parameters():
             if len(param.shape) >= 2:
@@ -83,17 +84,19 @@ def weight_init(m):
 def train_rnn_epoch(rnn, output, data_loader_, optimizer, node_weights, edge_weights, scheduler=None):
     rnn.train()
     output.train()
-    loss_sum_edges, loss_sum_nodes = 0, 0
+    tot_loss, loss_sum_edges, loss_sum_nodes = 0, 0, 0
     for batch_idx, data in enumerate(data_loader_):
         rnn.zero_grad()
         output.zero_grad()
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward()
+        # nn.utils.clip_grad_value_(list(rnn.parameters()) + list(output.parameters()), clip_value=.25)
         optimizer.step()        
         if scheduler != None: scheduler.step()
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-    return loss / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+        tot_loss =  loss_sum_edges + loss_sum_nodes
+    return tot_loss / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
 
 
 @torch.no_grad()
