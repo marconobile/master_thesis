@@ -113,115 +113,95 @@ def validate_rnn_epoch(rnn, output, data_loader_, node_weights, edge_weights):
 
 def fit_batch(data, rnn, output, node_weights, edge_weights):
 
+    for k, v in data.items(): data[k] = v.to(device)
+
+    ce_nodes = torch.nn.CrossEntropyLoss(node_weights)
+    ce_edges = torch.nn.CrossEntropyLoss(edge_weights)
+
     with torch.no_grad():
         # ([bs, max_num_node, max_prev_node, edge_feature])
-        x_unsorted = data['x'].float()
         y_unsorted = data['y'].float()
+        x_unsorted = data['x'].float()
 
         # ([bs, max_num_node, node_feature])
-        x_nodes_unsorted = data['x_node_attr'].float()
         y_nodes_unsorted = data['y_node_attr'].float()
+        x_nodes_unsorted = data['x_node_attr'].float()
 
         y_len_unsorted = data['len']  # list of seq_len of each g, len()=bs
         y_len_max = max(y_len_unsorted)  # pick max_seq_length of the current batch
-        x_unsorted = x_unsorted[:, 0:y_len_max, :, :]
-        y_unsorted = y_unsorted[:, 0:y_len_max, :, :]
+        x_unsorted = x_unsorted[:, :y_len_max, :, :]
+        y_unsorted = y_unsorted[:, :y_len_max, :, :]
 
-        x_nodes_unsorted = x_nodes_unsorted[:, 0:y_len_max, :]
-        y_nodes_unsorted = y_nodes_unsorted[:, 0:y_len_max, :]
+        x_nodes_unsorted = x_nodes_unsorted[:, :y_len_max, :]
+        y_nodes_unsorted = y_nodes_unsorted[:, :y_len_max, :]
 
         x_unsorted_for_nn = torch.reshape(x_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
         y_unsorted_for_nn = torch.reshape(y_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
 
-
         y_len, sort_index = torch.sort(y_len_unsorted, 0, descending=True)
-        y_len = y_len.numpy().tolist() # ([bs, max_seq_l, 8*4])
+        y_len = y_len.cpu() # ([bs, max_seq_l, 8*4])
         x = torch.index_select(x_unsorted_for_nn, 0, sort_index)
         y = torch.index_select(y_unsorted_for_nn, 0, sort_index) # ([bs, max_seq_l, node_f])
         x_nodes = torch.index_select(x_nodes_unsorted, 0, sort_index)
-        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index).to(device)  # NODE TARGETS
+        y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index) # NODE TARGETS
         y_reshape = torch.nn.utils.rnn.pack_padded_sequence(y, y_len, batch_first=True).data
-        idx = torch.LongTensor([i for i in range(y_reshape.size(0) - 1, -1, -1)])
+        idx = torch.tensor([i for i in range(y_reshape.size(0) - 1, -1, -1)], device=device, dtype=torch.long)
         # inverts the rows order of y_reshape
         y_reshape = y_reshape.index_select(0, idx)
         y_reshape = y_reshape.view(y_reshape.size(0), max_prev_node, edge_feature_dims)
-        output_x = torch.cat((torch.ones(y_reshape.size(0), 1, edge_feature_dims), y_reshape[:, 0:-1, :]), dim=1).to(device)
+        output_x = torch.cat((torch.ones(y_reshape.size(0), 1, edge_feature_dims, device=device), y_reshape[:, 0:-1, :]), dim=1)
         output_y = y_reshape
         output_y_len = []
-        output_y_len_bin = np.bincount(np.array(y_len))
+        output_y_len_bin = torch.bincount(y_len)
         for i in range(len(output_y_len_bin) - 1, 0, -1):  # countdown from len(output_y_len_bin)
-            # count how many times y_len is above i
-            count_temp = np.sum(output_y_len_bin[i:])
-            if i == max_num_node:
-                output_y_len.extend([min(max_prev_node, y.size(2))] * count_temp)
-            else:
-                output_y_len.extend([min(i, y.size(2))] * count_temp)
-
-        x = torch.cat((x_nodes, x), 2).to(device)  # INPUT FOR NODE LVL
-        output_y.to(device)
+            count_temp = torch.sum(output_y_len_bin[i:]) # count how many times y_len is above i
+            if i == max_num_node: output_y_len.extend([min(max_prev_node, y.size(2))] * count_temp)
+            else: output_y_len.extend([min(i, y.size(2))] * count_temp)
+        x = torch.cat((x_nodes, x), 2) # INPUT FOR NODE LVL
 
     # OUTPUTS
     rnn.hidden = rnn.init_hidden(batch_size=x_unsorted_for_nn.size(0))
     h, node_prediction = rnn(x, pack=True, input_len=y_len)
 
     h = torch.nn.utils.rnn.pack_padded_sequence(h, y_len, batch_first=True).data  # get packed hidden vector
-    idx = torch.LongTensor([i for i in range(h.size(0) - 1, -1, -1)]).to(device)
+    idx = torch.tensor([i for i in range(h.size(0) - 1, -1, -1)], device=device, dtype=torch.long)
     h = h.index_select(0, idx)
 
-    hidden_null = torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1)).to(device) # num_layers, batch_size, hidden_size
+    hidden_null = torch.zeros(rnn.num_layers - 1, h.size(0), h.size(1), device=device) # num_layers, batch_size, hidden_size
     output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
     y_pred = output(output_x, pack=True, input_len=output_y_len)
 
-    # OUTPUT LAYERS
-    y_pred = F.log_softmax(y_pred, dim=2)
-    node_prediction = F.log_softmax(node_prediction, dim=2)
-
-    # pack and pad predicted edges
-    y_pred = torch.nn.utils.rnn.pack_padded_sequence(y_pred, output_y_len, batch_first=True)
-    y_pred = torch.nn.utils.rnn.pad_packed_sequence(y_pred, batch_first=True)[0]
-
-    # pack and pad real edges
+    # OUTPUT LAYERS    
+    y_pred = torch.nn.utils.rnn.pack_padded_sequence(y_pred, output_y_len, batch_first=True)    
     output_y = torch.nn.utils.rnn.pack_padded_sequence(output_y, output_y_len, batch_first=True)
-    output_y = torch.nn.utils.rnn.pad_packed_sequence(output_y, batch_first=True)[0]
 
-    # pack and pad predicted nodes
     node_prediction = torch.nn.utils.rnn.pack_padded_sequence(node_prediction, y_len, batch_first=True)
-    node_prediction = torch.nn.utils.rnn.pad_packed_sequence(node_prediction, batch_first=True)[0]
-
-    # pack and pad real nodes
     y_nodes = torch.nn.utils.rnn.pack_padded_sequence(y_nodes, y_len, batch_first=True)
-    y_nodes = torch.nn.utils.rnn.pad_packed_sequence(y_nodes, batch_first=True)[0]
 
-    # permutations of predicted edg/nodes
-    y_pred = y_pred.permute(0, 2, 1)
-    node_prediction = node_prediction.permute(0, 2, 1)
+    # edge_loss = F.cross_entropy(y_pred.data, output_y.data, weight = edge_weights)
+    # node_loss = F.cross_entropy(node_prediction.data, y_nodes.data, weight = node_weights)
 
-    # permutations of real edg/nodes
-    output_y = output_y.permute(0, 2, 1)
-    y_nodes = y_nodes.permute(0, 2, 1)
+    edge_loss = ce_edges(y_pred[0], output_y[0])
+    node_loss = ce_nodes(node_prediction[0], y_nodes[0])
 
-    _, indices_edges = torch.max(output_y, 1)
-    _, indices_nodes = torch.max(y_nodes, 1)
-
-    edge_loss = F.nll_loss(y_pred.to(device), indices_edges.to(device), reduction='mean', weight=edge_weights.to(torch.float32).to(device))
-    node_loss = F.nll_loss(node_prediction.to(device), indices_nodes.to(device), reduction='mean', weight=node_weights.to(torch.float32).to(device))
     return edge_loss + node_loss, edge_loss, node_loss
 
 
 @torch.no_grad()
 def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
-    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand    
-    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device) # create node level token    
+    rnn.eval()
+    output.eval()
+    rnn.hidden = rnn.init_hidden(test_batch_size) #! rand    
+    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims), device=device)
     x_list, edg_attr_list, edg_idx_list = [], [], [] # initialize empty lists for Data() object
     
     for i in range(max_num_node): # Node RNN for-loop
         h, node_prediction = rnn(x_step)
-
         node_prediction_argmax = F.one_hot(node_prediction.argmax(), num_classes=node_feature_dims)
         x_list.append(node_prediction_argmax)
 
         # reset and update input for next iteration
-        x_step = torch.zeros((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device)
+        x_step = torch.zeros((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims), device=device)
         x_step[:, :, :node_feature_dims] = node_prediction_argmax.data
 
         # init Edge/Abs lvl
@@ -304,6 +284,13 @@ def generate_mols(N, rnn, output, epoch):
     smiles_ = pyg2rdkit(to_draw)
     filename = f"original_thesis_weights_all_{epoch}_{N}.smiles"
     smiles_ = [Chem.MolToSmiles(m) for m in smiles_]
+    # smiles_ = []
+    # try: 
+    #     for m in smiles_:
+    #         smiles_.append(Chem.MolToSmiles(m))
+    # except:
+    #     pass
+
     save_smiles(smiles_, ".", filename, "smiles")
 
 
@@ -318,8 +305,9 @@ def memorize_batch_single_opt(max_epoch, rnn, output, data_loader_, optimizer, n
         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
         loss.backward()
         optimizer.step()
-        scheduler.step()
-        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
+        if scheduler: scheduler.step()
+        if epoch % 100 == 0 or epoch == 1: 
+            print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
         epoch += 1
     for i in [10]: generate_mols(i,rnn, output, epoch)
 

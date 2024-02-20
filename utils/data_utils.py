@@ -9,9 +9,9 @@ from torch_geometric.data import Data
 import os
 from mappings import *
 import torch.nn.functional as F
-
-
 from torch_sparse import coalesce
+
+
 
 
 def save_smiles(smiles, path, filename, ext='.txt'):
@@ -33,6 +33,7 @@ def save_smiles(smiles, path, filename, ext='.txt'):
     # path_to_file = generate_file(path, filename)
     with open(path_to_file, "w+") as f:
         f.writelines("%s\n" % smi for smi in smiles)
+
 
 def rdkit2pyg(mols):
     '''
@@ -112,7 +113,6 @@ def pyg2rdkit(dataset):
         mols_.append(numpy_to_rdkit(adj, nf, ef))
 
     return mols_
-
 
 
 def get_atoms_info(mols):
