@@ -76,12 +76,14 @@ class GRU_plain(nn.Module):
             torch.nn.init.kaiming_normal_(self.node_mlp1.weight, nonlinearity='leaky_relu')
             torch.nn.init.kaiming_normal_(self.node_mlp2.weight, nonlinearity='leaky_relu')            
             self.node_mlp2.weight.data *= 0.01  
-            torch.nn.init.zeros_(self.node_mlp2.bias)                  
+            torch.nn.init.zeros_(self.node_mlp2.bias)         
+            # self.node_mlp2.bias = torch.nn.Parameter(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.], dev         
         else:
             torch.nn.init.kaiming_normal_(self.output1.weight, nonlinearity='leaky_relu')
             torch.nn.init.kaiming_normal_(self.output2.weight, nonlinearity='leaky_relu')
             self.output2.weight.data *= 0.01
-            torch.nn.init.zeros_(self.output2.bias)                  
+            torch.nn.init.zeros_(self.output2.bias)     
+            # self.output2.bias = torch.nn.Parameter(torch.tensor([1., 0., 0., 0., 0.], device=device))             
 
     def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)

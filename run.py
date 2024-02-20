@@ -56,8 +56,8 @@ node_weights = torch.tensor(nweights_list, device=device, dtype=torch.float32)
 edge_weights = torch.tensor(bweights_list, device=device, dtype=torch.float32)
 
 #! --- SET UP EXPERIMENT ---
-LRrnn = 5e-5
-epoch, max_epoch = 1, 4000
+LRrnn = 5e-6
+epoch, max_epoch = 1, 10000
 bs = 32
 
 
@@ -76,13 +76,12 @@ scheduler = None
 
 
 # # MEMORIZATION
-obs = train_guac_mols[0]
+obs = train_guac_mols[1]
 print(Chem.MolToSmiles(obs))
 train_data = rdkit2pyg([obs])
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(
     train_data, train_data, max_num_node, max_prev_node, bs)  # ! HERE WORKERS
-# torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-scheduler = None
+scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 memorize_batch_single_opt(max_epoch, rnn, output, train_dataset_loader,
                           optimizer, node_weights, edge_weights, scheduler)
 quit()
