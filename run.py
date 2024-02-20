@@ -56,7 +56,7 @@ node_weights = torch.tensor(nweights_list, device=device, dtype=torch.float32)
 edge_weights = torch.tensor(bweights_list, device=device, dtype=torch.float32)
 
 #! --- SET UP EXPERIMENT ---
-LRrnn = 6e-6
+LRrnn = 8e-6
 epoch, max_epoch = 1, 10000
 bs = 32
 
@@ -76,7 +76,7 @@ scheduler = None
 
 
 # # MEMORIZATION
-obs = train_guac_mols[1]
+obs = train_guac_mols[2]
 print(Chem.MolToSmiles(obs))
 train_data = rdkit2pyg([obs])
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(
