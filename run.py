@@ -56,7 +56,7 @@ node_weights = torch.tensor(nweights_list, device=device, dtype=torch.float32)
 edge_weights = torch.tensor(bweights_list, device=device, dtype=torch.float32)
 
 #! --- SET UP EXPERIMENT ---
-LRrnn = 5e-6
+LRrnn = 6e-6
 epoch, max_epoch = 1, 10000
 bs = 32
 
