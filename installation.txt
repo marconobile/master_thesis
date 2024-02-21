@@ -8,3 +8,7 @@ pip install rdkit
 
 # https://pypi.org/project/torch-sparse/
 conda install pytorch-sparse -c pyg
+
+python -m pip install lightning
+pip install tensorboard
+pip install torchmetrics
