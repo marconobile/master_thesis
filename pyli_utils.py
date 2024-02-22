@@ -11,8 +11,8 @@ from torch_geometric.utils import to_dense_adj
 import numpy as np
 import networkx as nx
 from torch import nn
-from torch.optim import RMSprop
-from torch.optim.lr_scheduler import OneCycleLR
+from torch.optim import RMSprop, Adam
+from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
 import lightning as L
 import torch.nn.init as init
 import torchmetrics
@@ -364,7 +364,7 @@ class GRU_plain(nn.Module):
         else:
             output_raw, self.hidden = self.rnn(input_emb, self.hidden)
 
-        if self.node_lvl: output_raw = input_emb + output_raw
+        if self.node_lvl: output_raw = 1/2*input_emb + 1/2*output_raw
 
         output_raw_1 = self.output1(output_raw)
         output_raw_1 = self.outputNorm(output_raw_1)
@@ -388,8 +388,8 @@ class GraphRNNModel(nn.Module):
         embedding_size_rnn = 256 * 4
         hidden_size_rnn = 256 * 4
 
-        embedding_size_rnn_output = 256 * 3
-        hidden_size_rnn_output = 256 * 3
+        embedding_size_rnn_output = 256 * 4
+        hidden_size_rnn_output = 256 * 4
         out_edge_level = hidden_size_rnn_output
 
         self.rnn = GRU_plain(input_size=node_feature_dims + edge_feature_dims * max_prev_node,
@@ -412,9 +412,7 @@ class GraphRNNModel(nn.Module):
         self.ce_nodes = torch.nn.CrossEntropyLoss(self.node_weights)
         self.ce_edges = torch.nn.CrossEntropyLoss(self.edge_weights)
 
-    def forward(self, data):
-        # for k, v in data.items():
-        #     data[k] = v.to(device)
+    def forward(self, data, train_edge_lvl = False):        
 
         with torch.no_grad():
             # ([bs, max_num_node, max_prev_node, edge_feature])
@@ -434,8 +432,8 @@ class GraphRNNModel(nn.Module):
             x_nodes_unsorted = x_nodes_unsorted[:, :y_len_max, :]
             y_nodes_unsorted = y_nodes_unsorted[:, :y_len_max, :]
 
-            x_unsorted_for_nn = torch.reshape(x_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
-            y_unsorted_for_nn = torch.reshape(y_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
+            x_unsorted_for_nn = x_unsorted.flatten(-2,-1) # torch.reshape(x_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
+            y_unsorted_for_nn = y_unsorted.flatten(-2,-1) # torch.reshape(y_unsorted, (x_unsorted.shape[0], x_unsorted.shape[1], x_unsorted.shape[2] * x_unsorted.shape[3]))
 
             y_len, sort_index = torch.sort(y_len_unsorted, 0, descending=True)
             y_len = y_len.cpu()  # ([bs, max_seq_l, 8*4])
@@ -443,8 +441,10 @@ class GraphRNNModel(nn.Module):
             # ([bs, max_seq_l, node_f])
             y = torch.index_select(y_unsorted_for_nn, 0, sort_index)
             x_nodes = torch.index_select(x_nodes_unsorted, 0, sort_index)
-            y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  # NODE TARGETS
-            y_reshape = pack_padded_sequence(y, y_len, batch_first=True).data
+            y_nodes = torch.index_select(y_nodes_unsorted, 0, sort_index)  
+            
+            # NODE TARGETS
+            y_reshape, y_seq_len, _, _  = pack_padded_sequence(y, y_len, batch_first=True)
             idx = torch.tensor([i for i in range(y_reshape.size(0) - 1, -1, -1)], device=device, dtype=torch.long)
             # inverts the rows order of y_reshape
             y_reshape = y_reshape.index_select(0, idx)
@@ -466,48 +466,57 @@ class GraphRNNModel(nn.Module):
         self.rnn.hidden = self.rnn.init_hidden(batch_size=x_unsorted_for_nn.size(0))
         h, node_prediction = self.rnn(x, pack=True, input_len=y_len)
 
-        h = pack_padded_sequence(h, y_len, batch_first=True).data  # get packed hidden vector
-        idx = torch.tensor([i for i in range(h.size(0) - 1, -1, -1)], device=device, dtype=torch.long)
-        h = h.index_select(0, idx)
-
-        # num_layers, batch_size, hidden_size
-        hidden_null = torch.zeros(self.rnn.num_layers - 1, h.size(0), h.size(1), device=device)
-        self.output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
-        y_pred = self.output(output_x, pack=True, input_len=output_y_len)
-
-        # OUTPUT LAYERS
-        y_pred = pack_padded_sequence(y_pred, output_y_len, batch_first=True)
-        output_y = pack_padded_sequence(output_y, output_y_len, batch_first=True)
-
         node_prediction = pack_padded_sequence(node_prediction, y_len, batch_first=True)
         y_nodes = pack_padded_sequence(y_nodes, y_len, batch_first=True)
-
-        edge_loss = self.ce_edges(y_pred[0], output_y[0])
         node_loss = self.ce_nodes(node_prediction[0], y_nodes[0])
+        total_loss = node_loss
 
-        return {"total_loss": edge_loss + node_loss, "edge_loss": edge_loss, "node_loss": node_loss}
+        edge_loss = torch.tensor([torch.nan])
+        if train_edge_lvl:            
+            h = pack_padded_sequence(h, y_len, batch_first=True).data  # get packed hidden vector
+            idx = torch.tensor([i for i in range(h.size(0) - 1, -1, -1)], device=device, dtype=torch.long)
+            h = h.index_select(0, idx)
 
+            # num_layers, batch_size, hidden_size
+            hidden_null = torch.zeros(self.rnn.num_layers - 1, h.size(0), h.size(1), device=device)
+            self.output.hidden = torch.cat((h.view(1, h.size(0), h.size(1)), hidden_null), dim=0)
+            y_pred = self.output(output_x, pack=True, input_len=output_y_len)
+
+            # OUTPUT LAYERS
+            y_pred = pack_padded_sequence(y_pred, output_y_len, batch_first=True)
+            output_y = pack_padded_sequence(output_y, output_y_len, batch_first=True)
+            edge_loss = self.ce_edges(y_pred[0], output_y[0])
+            total_loss +=  edge_loss*.1
+
+        return {"total_loss": total_loss, "edge_loss": edge_loss, "node_loss": node_loss}
+    
 
 class LightModule(L.LightningModule):
-    def __init__(self, steps_per_epoch, epochs):        
+    def __init__(self, lr, steps_per_epoch, epochs):        
         super().__init__()
         self.model = GraphRNNModel()
-        self.lr = 0.000016
+        self.lr = lr
         self.steps_per_epoch, self.epochs = steps_per_epoch, epochs
+        self.train_edge_lvl = False
         # self.train_node_acc = torchmetrics.Accuracy( task="multiclass", num_classes=12)
         # self.val_node_acc = torchmetrics.Accuracy( task="multiclass", num_classes=5)
         # self.train_edge_acc = torchmetrics.Accuracy(task="multiclass", num_classes=12)
         # self.val_edge_acc = torchmetrics.Accuracy(task="multiclass", num_classes=5)
 
-    def forward(self, x): return self.model(x)
+    def forward(self, x):         
+        return self.model(x, self.train_edge_lvl)
 
-    def _shared_step(self, batch): return self.forward(batch)
+    def _shared_step(self, batch): 
+        return self.forward(batch)
 
     def training_step(self, batch, batch_idx):
         return_dict = self._shared_step(batch)    
         self.log("total_loss", return_dict["total_loss"].item(), prog_bar=True)
         self.log("edge_loss", return_dict["edge_loss"].item(), prog_bar=True)
-        self.log("node_loss", return_dict["node_loss"].item(), prog_bar=True)
+        node_loss = return_dict["node_loss"].item()
+        if node_loss < 1e-2:
+            self.train_edge_lvl = True
+        self.log("node_loss", node_loss, prog_bar=True)        
         return return_dict["total_loss"]
 
     def validation_step(self, batch, batch_idx):
@@ -524,9 +533,10 @@ class LightModule(L.LightningModule):
         # self.log("test_acc", self.test_acc)
 
     def configure_optimizers(self):
-        optimizer = RMSprop(self.parameters(), self.lr)
-        scheduler = OneCycleLR(optimizer, max_lr=self.lr, steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
-        return [optimizer], [scheduler]
+        optimizer = Adam(self.parameters(), self.lr)
+        # scheduler = OneCycleLR(optimizer, max_lr=self.lr, steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
+        # scheduler =  CosineAnnealingLR(optimizer, self.steps_per_epoch * self.epochs)
+        return [optimizer] #, [scheduler]
 
     @torch.no_grad()
     def _generate_single_obs(self, test_batch_size=1):        
@@ -553,7 +563,7 @@ class LightModule(L.LightningModule):
             idx = [k for k in range(i, -1, -1)] # this list is used to create edg_idx
             for j in range(min(max_prev_node, i + 1)): # Edge/Abs RNN for-loop          
                 output_y_pred_step_out = self.model.output(output_x_step) # prediction for each and every prev node
-                self.model.output.hidden = self.model.output.hidden.data.to(device)
+                # self.model.output.hidden = self.model.output.hidden.data.to(device)
                 output_x_step_argmax = F.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)       
         
                 if torch.argmax(output_x_step_argmax, dim=-1) != 0:
