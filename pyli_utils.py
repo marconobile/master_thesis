@@ -12,7 +12,7 @@ import numpy as np
 import networkx as nx
 from torch import nn
 from torch.optim import RMSprop, Adam
-from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR, ReduceLROnPlateau
 import lightning as L
 import torch.nn.init as init
 import torchmetrics
@@ -151,43 +151,32 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
     returns : dictionary containing input/output nodes, input/output edges
     '''
 
-    def __init__(self, Graph_list, node_attr_list, adj_all, max_num_node, max_prev_node):
+    def __init__(self, graph_list, node_attr_list, adj_all):
         '''
-        Graph_list: list of undirected networkx graphs
+        graph_list: list of undirected networkx graphs
         node_attr_list: list of node matrices
-        adj_all: list of A(s) with edge features as elements a_ij [NxNxEf]
+        adj_all: list of np.arrays A(s) with edge features as elements a_ij [NxNxEf]
         max_num_node : max number of possible nodes in a graph
         max_prev_node : max previous node that looks back (to lock back at)
-        '''
-
-        # list of multidim np.arrays (As) already in edge_feature form [V, V , node_f]
-        self.adj_all = adj_all
-        self.len_all = []  # V for each G
-        self.node_attr_list = node_attr_list
-        self.graph_list = Graph_list  # list of undirected nx graphs
-        self.len_all = [G.number_of_nodes() for G in Graph_list] # timesteps of node rnn for each G                    
-        self.max_num_node = max_num_node
-        self.max_prev_node = max_prev_node
-        self.edge_feature_dims = 5
-        self.node_feature_dims = 12
+        '''        
+        self.node_attr_list, self.adj_all, self.graph_list = node_attr_list , adj_all , graph_list
+        self.max_num_node, self.max_prev_node = max_num_node, max_prev_node    
+        self.edge_feature_dims, self.node_feature_dims = 5, 12                      
+        self.len_all = [G.number_of_nodes() for G in graph_list]     
         self.dataset = [self.preprocess_obs_i(i) for i in range(self.__len__())]
 
     def __getitem__(self, idx): return self.dataset[idx]
 
     def __len__(self): return len(self.adj_all)
 
-    def preprocess_obs_i(self, idx):
+    def preprocess_obs_i(self, idx):        
         # edge encoding:
-        adj_copy = np.asarray(self.adj_all[idx]).copy()
-        adj_copy = np.squeeze(adj_copy)  # adj_copy had bs as first dim
+        adj_copy = np.squeeze(np.asarray(self.adj_all[idx]).copy())
+        original_a = np.asarray(nx.adjacency_matrix(self.graph_list[idx]).todense())
+        adj_encoded = encode_adj(adj_copy, original_a, self.max_prev_node, self.edge_feature_dims)
+
         x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
         y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
-
-        # A without edge features of the current g
-        original_a = np.asarray(nx.adjacency_matrix(self.graph_list[idx]).todense())
-        # original_a = np.asarray(nx.from_numpy_array(self.graph_list[idx]))  # A without edge features of the current g
-        adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, edge_feature_dims=self.edge_feature_dims)
-
         x_batch[0, :, :] = 1
         x_batch[1:adj_encoded.shape[0] + 1, :] = adj_encoded
         y_batch[0:adj_encoded.shape[0], :] = adj_encoded
@@ -198,10 +187,10 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
                     y_batch[r, c, 0] = 1
 
         # node encoding:
-        node_attr_list_copy = np.asarray(self.node_attr_list[idx]).copy()
         x_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
         y_node_attr = np.zeros((self.max_num_node, self.node_feature_dims))
 
+        node_attr_list_copy = np.asarray(self.node_attr_list[idx])
         # input nodes:
         x_node_attr[0, :] = 1
         x_node_attr[1:node_attr_list_copy.shape[0], :] = node_attr_list_copy[:-1]
@@ -217,7 +206,7 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
                 }
 
 
-def process_subset(subset, max_num_node, max_prev_node):
+def process_subset(subset):
     '''
     :param subset: dataset for training or dataset for testing
     :param max_num_node: max num of nodes in the set of graphs
@@ -231,11 +220,9 @@ def process_subset(subset, max_num_node, max_prev_node):
     for g in subset:
         node_attr_list.append(g.x)
         G_list.append(to_undirected(to_networkx(g)))
-        adj_all.append(to_dense_adj(edge_index=g.edge_index,
-                       batch=None, edge_attr=g.edge_attr))
+        adj_all.append(to_dense_adj(edge_index=g.edge_index,batch=None, edge_attr=g.edge_attr))
 
-    return Graph_sequence_sampler_pytorch(Graph_list=G_list, node_attr_list=node_attr_list, adj_all=adj_all,
-                                          max_num_node=max_num_node, max_prev_node=max_prev_node)
+    return Graph_sequence_sampler_pytorch(G_list, node_attr_list, adj_all)
 
 
 def create_train_val_dataloaders(trainset, valset, bs, num_workers=1):
@@ -245,8 +232,8 @@ def create_train_val_dataloaders(trainset, valset, bs, num_workers=1):
     - max number of nodes of the loaded graphs,
     - max_prev_node = (max number of nodes-1)
     '''
-    train_set = process_subset(trainset, max_num_node, max_prev_node)
-    val_set = process_subset(valset, max_num_node, max_prev_node)
+    train_set = process_subset(trainset)
+    val_set = process_subset(valset)
     train_dataset_loader = DataLoader(train_set, batch_size=bs, shuffle=True, num_workers=num_workers)# , pin_memory=True)
     val_dataset_loader = DataLoader(val_set, batch_size=bs, shuffle=True, num_workers=num_workers)# , pin_memory=True)
     return train_dataset_loader, val_dataset_loader
@@ -302,78 +289,149 @@ def rdkit2pyg(mols):
     return data_list
 
 
+# class GRU_plain(nn.Module):
+#     def __init__(self, input_size, num_layers, out_middle_layer, embedding_size, hidden_size, output_size, node_lvl=False):
+#         super(GRU_plain, self).__init__()
+#         self.hidden_size, self.node_lvl, self.num_layers = hidden_size, node_lvl, num_layers
+#         self.hidden = None  # need initialize before forward run
+
+#         # Embedding
+#         self.embedding = nn.Linear(input_size, embedding_size)
+#         self.embeddingLRelu = nn.LeakyReLU()
+
+#         # RNN
+#         self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
+
+#         # output:
+#         # if node lvl: returns processed h_to_pass, dims: edgelvl hs
+#         # if edge lvl: returns edge unnormalized logits, dims: ef
+#         self.output1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
+#         self.outputNorm = nn.LayerNorm(out_middle_layer)
+#         self.outputLRelu = nn.LeakyReLU()
+#         self.output2 = nn.Linear(out_middle_layer, output_size)
+
+#         # node unnormalized logits
+#         if node_lvl:
+#             self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
+#             self.nodeNorm = nn.LayerNorm(out_middle_layer)
+#             self.nodeLRelu = nn.LeakyReLU()
+#             self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)
+
+#         self.ad_hoc_init()
+
+#     def ad_hoc_init(self):
+#         for name, param in self.rnn.named_parameters():
+#             if 'bias' in name: nn.init.constant_(param, 0.0)
+#             elif 'weight' in name: nn.init.kaiming_normal_(param, nonlinearity='sigmoid')
+
+#         if self.node_lvl:
+#             torch.nn.init.kaiming_normal_(self.node_mlp1.weight, nonlinearity='leaky_relu')
+#             torch.nn.init.kaiming_normal_(self.node_mlp2.weight, nonlinearity='leaky_relu')
+#             self.node_mlp2.weight.data *= 0.01
+#             torch.nn.init.zeros_(self.node_mlp2.bias)
+#         else:
+#             torch.nn.init.kaiming_normal_(self.output1.weight, nonlinearity='leaky_relu')
+#             torch.nn.init.kaiming_normal_(self.output2.weight, nonlinearity='leaky_relu')
+#             self.output2.weight.data *= 0.01
+#             torch.nn.init.zeros_(self.output2.bias)
+
+#     def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True,device=device)
+
+#     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True,device=device)
+
+#     def forward(self, input_raw, pack=False, input_len=None):
+
+#         input_emb = self.embedding(input_raw)
+#         input_emb = self.embeddingLRelu(input_emb)
+
+#         if pack:
+#             input = nn.utils.rnn.pack_padded_sequence(input_emb, input_len, batch_first=True)
+#             output_raw, self.hidden = self.rnn(input, self.hidden)
+#             output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
+#         else:
+#             output_raw, self.hidden = self.rnn(input_emb, self.hidden)
+
+#         if self.node_lvl: output_raw = 1/2*input_emb + 1/2*output_raw
+
+#         if self.node_lvl:
+#             node_pred = self.node_mlp1(output_raw)
+#             node_pred = self.nodeNorm(node_pred)
+#             node_pred = self.nodeLRelu(node_pred)
+#             node_pred = self.node_mlp2(node_pred)
+#             return output_raw, node_pred
+
+#         output_raw_1 = self.output1(output_raw)
+#         output_raw_1 = self.outputNorm(output_raw_1)
+#         output_raw_1 = self.outputLRelu(output_raw_1)
+#         output_raw_1 = self.output2(output_raw_1)
+#         return output_raw_1
+
 class GRU_plain(nn.Module):
     def __init__(self, input_size, num_layers, out_middle_layer, embedding_size, hidden_size, output_size, node_lvl=False):
         super(GRU_plain, self).__init__()
-        self.hidden_size, self.node_lvl, self.num_layers = hidden_size, node_lvl, num_layers
+        self.hidden_size, self.node_lvl, self.num_layers = hidden_size, node_lvl, num_layers          
         self.hidden = None  # need initialize before forward run
-
         # Embedding
         self.embedding = nn.Linear(input_size, embedding_size)
         self.embeddingLRelu = nn.LeakyReLU()
-
         # RNN
         self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
-
-        # output:
+        # output: 
         # if node lvl: returns processed h_to_pass, dims: edgelvl hs
         # if edge lvl: returns edge unnormalized logits, dims: ef
         self.output1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
         self.outputNorm = nn.LayerNorm(out_middle_layer)
         self.outputLRelu = nn.LeakyReLU()
         self.output2 = nn.Linear(out_middle_layer, output_size)
-
+        
         # node unnormalized logits
         if node_lvl:
             self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
             self.nodeNorm = nn.LayerNorm(out_middle_layer)
             self.nodeLRelu = nn.LeakyReLU()
-            self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)
-
-        self.ad_hoc_init()
-
+            self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)          
     def ad_hoc_init(self):
         for name, param in self.rnn.named_parameters():
             if 'bias' in name: nn.init.constant_(param, 0.0)
             elif 'weight' in name: nn.init.kaiming_normal_(param, nonlinearity='sigmoid')
-
         if self.node_lvl:
             torch.nn.init.kaiming_normal_(self.node_mlp1.weight, nonlinearity='leaky_relu')
-            torch.nn.init.kaiming_normal_(self.node_mlp2.weight, nonlinearity='leaky_relu')
-            self.node_mlp2.weight.data *= 0.01
-            torch.nn.init.zeros_(self.node_mlp2.bias)
+            torch.nn.init.kaiming_normal_(self.node_mlp2.weight, nonlinearity='leaky_relu')            
+            self.node_mlp2.weight.data *= 0.01  
+            torch.nn.init.zeros_(self.node_mlp2.bias)                  
+            torch.nn.init.zeros_(self.node_mlp2.bias)         
+            # self.node_mlp2.bias = torch.nn.Parameter(torch.tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.], dev         
         else:
             torch.nn.init.kaiming_normal_(self.output1.weight, nonlinearity='leaky_relu')
             torch.nn.init.kaiming_normal_(self.output2.weight, nonlinearity='leaky_relu')
             self.output2.weight.data *= 0.01
-            torch.nn.init.zeros_(self.output2.bias)
+            torch.nn.init.zeros_(self.output2.bias)                  
+            torch.nn.init.zeros_(self.output2.bias)     
+            # self.output2.bias = torch.nn.Parameter(torch.tensor([1., 0., 0., 0., 0.], device=device))             
 
-    def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True,device=device)
-
-    def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True,device=device)
-
+    def init_hidden(self, batch_size): return torch.zeros((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
+    def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
+    def get_activation_layers(self):
+        return {"embeddingLRelu": self.embeddingLRelu, "outputLRelu": self.outputLRelu, "nodeLRelu": self.nodeLRelu}
     def forward(self, input_raw, pack=False, input_len=None):
-
         input_emb = self.embedding(input_raw)
         input_emb = self.embeddingLRelu(input_emb)
-
-        if pack:
+        if pack: 
             input = nn.utils.rnn.pack_padded_sequence(input_emb, input_len, batch_first=True)
-            output_raw, self.hidden = self.rnn(input, self.hidden)
+            output_raw, self.hidden = self.rnn(input, self.hidden)        
             output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
         else:
-            output_raw, self.hidden = self.rnn(input_emb, self.hidden)
-
-        if self.node_lvl: output_raw = 1/2*input_emb + 1/2*output_raw
-
+            output_raw, self.hidden = self.rnn(input_emb, self.hidden)        
+        
+        if self.node_lvl:
+            output_raw = 1/2 * input_emb + 1/2 * output_raw
         output_raw_1 = self.output1(output_raw)
         output_raw_1 = self.outputNorm(output_raw_1)
         output_raw_1 = self.outputLRelu(output_raw_1)
         output_raw_1 = self.output2(output_raw_1)
-
         if self.node_lvl:
             node_pred = self.node_mlp1(output_raw)
-            node_pred = self.nodeNorm(node_pred)
+            node_pred = self.nodeNorm(node_pred) 
             node_pred = self.nodeLRelu(node_pred)
             node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred
@@ -384,12 +442,10 @@ class GraphRNNModel(nn.Module):
     def __init__(self):
         super().__init__()
         num_layers = 4
-
-        embedding_size_rnn = 256 * 4
-        hidden_size_rnn = 256 * 4
-
-        embedding_size_rnn_output = 256 * 4
-        hidden_size_rnn_output = 256 * 4
+        embedding_size_rnn = 256 *4
+        hidden_size_rnn = 256 *4
+        embedding_size_rnn_output = 256 *3
+        hidden_size_rnn_output = 256 * 3
         out_edge_level = hidden_size_rnn_output
 
         self.rnn = GRU_plain(input_size=node_feature_dims + edge_feature_dims * max_prev_node,
@@ -399,7 +455,6 @@ class GraphRNNModel(nn.Module):
                              output_size=hidden_size_rnn_output,
                              node_lvl=True,
                              out_middle_layer=hidden_size_rnn_output)
-
         self.output = GRU_plain(input_size=edge_feature_dims,
                                 num_layers=num_layers,
                                 embedding_size=embedding_size_rnn_output,
@@ -409,8 +464,8 @@ class GraphRNNModel(nn.Module):
 
         self.node_weights = torch.tensor(nweights_list, device=device, dtype=torch.float32)
         self.edge_weights = torch.tensor(bweights_list, device=device, dtype=torch.float32)
-        self.ce_nodes = torch.nn.CrossEntropyLoss(self.node_weights)
-        self.ce_edges = torch.nn.CrossEntropyLoss(self.edge_weights)
+        self.ce_nodes = torch.nn.CrossEntropyLoss() # self.node_weights
+        self.ce_edges = torch.nn.CrossEntropyLoss(self.edge_weights) # 
 
     def forward(self, data, train_edge_lvl = False):        
 
@@ -469,7 +524,8 @@ class GraphRNNModel(nn.Module):
         node_prediction = pack_padded_sequence(node_prediction, y_len, batch_first=True)
         y_nodes = pack_padded_sequence(y_nodes, y_len, batch_first=True)
         node_loss = self.ce_nodes(node_prediction[0], y_nodes[0])
-        total_loss = node_loss
+        total_loss = torch.zeros_like(node_loss)
+        total_loss += node_loss
 
         edge_loss = torch.tensor([torch.nan])
         if train_edge_lvl:            
@@ -486,7 +542,7 @@ class GraphRNNModel(nn.Module):
             y_pred = pack_padded_sequence(y_pred, output_y_len, batch_first=True)
             output_y = pack_padded_sequence(output_y, output_y_len, batch_first=True)
             edge_loss = self.ce_edges(y_pred[0], output_y[0])
-            total_loss +=  edge_loss*.1
+            total_loss +=  edge_loss
 
         return {"total_loss": total_loss, "edge_loss": edge_loss, "node_loss": node_loss}
     
@@ -498,6 +554,10 @@ class LightModule(L.LightningModule):
         self.lr = lr
         self.steps_per_epoch, self.epochs = steps_per_epoch, epochs
         self.train_edge_lvl = False
+        self.automatic_optimization = False
+        self.save_hyperparameters(ignore=['model']) # do not create checkpoints of model params
+
+
         # self.train_node_acc = torchmetrics.Accuracy( task="multiclass", num_classes=12)
         # self.val_node_acc = torchmetrics.Accuracy( task="multiclass", num_classes=5)
         # self.train_edge_acc = torchmetrics.Accuracy(task="multiclass", num_classes=12)
@@ -510,14 +570,30 @@ class LightModule(L.LightningModule):
         return self.forward(batch)
 
     def training_step(self, batch, batch_idx):
-        return_dict = self._shared_step(batch)    
-        self.log("total_loss", return_dict["total_loss"].item(), prog_bar=True)
-        self.log("edge_loss", return_dict["edge_loss"].item(), prog_bar=True)
+
+        return_dict = self._shared_step(batch)            
+        self.manual_backward(return_dict["total_loss"])
+        opt_node_lvl, opt_edge_lvl = self.optimizers()
+
         node_loss = return_dict["node_loss"].item()
-        if node_loss < 1e-2:
-            self.train_edge_lvl = True
-        self.log("node_loss", node_loss, prog_bar=True)        
+        self.log("node_loss", node_loss, prog_bar=True)                                                
+        if node_loss < 1e-3: 
+            if self.train_edge_lvl == False:
+                self.train_edge_lvl = True
+                for param_group in opt_node_lvl.param_groups: param_group['lr'] = 3e-6  # 3e-9 
+                for param_group in opt_edge_lvl.param_groups: param_group['lr'] = 3e-5                                
+
+        opt_node_lvl.step()
+        if self.train_edge_lvl:      
+            opt_edge_lvl.step()
+            sched_edge_lvl = self.lr_schedulers()            
+            self.log("edgLvlSched", opt_edge_lvl.param_groups[0]['lr'], prog_bar=True)
+            sched_edge_lvl.step(return_dict["edge_loss"])
+            self.log("edge_loss", return_dict["edge_loss"].item(), prog_bar=True)
+
+        self.log("total_loss", return_dict["total_loss"].item(), prog_bar=True)
         return return_dict["total_loss"]
+
 
     def validation_step(self, batch, batch_idx):
         pass
@@ -533,10 +609,12 @@ class LightModule(L.LightningModule):
         # self.log("test_acc", self.test_acc)
 
     def configure_optimizers(self):
-        optimizer = Adam(self.parameters(), self.lr)
+        opt_node_lvl = RMSprop(self.model.rnn.parameters(), self.lr)
+        opt_edge_lvl = RMSprop(self.model.output.parameters(), self.lr)
         # scheduler = OneCycleLR(optimizer, max_lr=self.lr, steps_per_epoch=self.steps_per_epoch, epochs=self.epochs)
         # scheduler =  CosineAnnealingLR(optimizer, self.steps_per_epoch * self.epochs)
-        return [optimizer] #, [scheduler]
+        sched_edge_lvl =  ReduceLROnPlateau(opt_edge_lvl)
+        return [opt_node_lvl, opt_edge_lvl], [sched_edge_lvl]
 
     @torch.no_grad()
     def _generate_single_obs(self, test_batch_size=1):        

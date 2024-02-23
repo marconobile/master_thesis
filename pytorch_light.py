@@ -8,7 +8,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 #### hyperparams
 bs = 64
 lr = 3e-4
-max_epochs = 15000
+max_epochs = 650
 MEMORIZATION = True
 
 #### datasets #! todo use whole data and valid
@@ -24,8 +24,8 @@ else:
     train_data = rdkit2pyg(train_guac_mols[:bs*4]) #! todo use whole data
 
 #### dataloader  
-train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, train_data, bs, num_workers=0)  # ! HERE WORKERS and change valid
-#! atm cant add workers, to be fixe
+train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, train_data, bs, num_workers=0)
+
 
 #### PyT PyL models
 n_batches = len(train_dataset_loader)
@@ -40,19 +40,23 @@ trainer = L.Trainer(
     max_epochs=max_epochs,
     accelerator="gpu",
     devices=1,
-    precision="16-mixed" #"bf16-mixed"
+    # precision="16-mixed" #"bf16-mixed"
+    log_every_n_steps=500
 )
 
 # from lightning.pytorch.tuner import Tuner
 # tuner = Tuner(trainer)
 # lr_finder = tuner.lr_find(graphRNN_light_model, train_dataset_loader) # '0.000016'
 
-#### Train
-trainer.fit(
-    model=graphRNN_light_model,
-    train_dataloaders=train_dataset_loader,
-    # val_dataloaders=val_loader
-)
+try:
+    #### Train
+    trainer.fit(
+        model=graphRNN_light_model,
+        train_dataloaders=train_dataset_loader,
+        # val_dataloaders=val_loader
+    )
+except KeyboardInterrupt:     
+    graphRNN_light_model.generate_mols(10)
 
 graphRNN_light_model.generate_mols(10)
 
