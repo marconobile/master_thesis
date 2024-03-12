@@ -19,8 +19,8 @@ def save_smiles(smiles, path, filename, ext='.txt'):
     saves smiles in a file at path
     extension can be provided in filename or as separate arg
     args:
-        - smiles str iterable 
-        - path directory where to save smiles 
+        - smiles str iterable
+        - path directory where to save smiles
         - filename name of the file, must not have extension
     '''
     path_to_file = os.path.join(path, filename)
@@ -65,7 +65,7 @@ def pyg2rdkit(dataset):
     def numpy_to_rdkit(adj, nf, ef, sanitize=False):
         """
         Converts a molecule from numpy to RDKit format.
-        :param adj: binary numpy array of shape (N, N) 
+        :param adj: binary numpy array of shape (N, N)
         :param nf: numpy array of shape (N, F)
         :param ef: numpy array of shape (N, N, S)
         :param sanitize: whether to sanitize the molecule after conversion
@@ -122,14 +122,14 @@ def get_atoms_info(mols):
         if m.GetNumAtoms() > max_num: max_num = m.GetNumAtoms()
         for atom in m.GetAtoms(): atoms.add(atom.GetSymbol())
 
-    atom2num = {str(atomType): i for i, atomType in enumerate(atoms)}    
+    atom2num = {str(atomType): i for i, atomType in enumerate(atoms)}
     num2atom = {v: k for k, v in atom2num.items()}
     return atom2num, num2atom, max_num
 
 
 def mols_from_file(pathfile: str, drop_none: bool = False):
     '''
-    takes as input a path/to/file.ext 
+    takes as input a path/to/file.ext
     where ext can be:
     .sdf, .csv, .txt, .smiles
     it returns all mols from file
@@ -354,11 +354,15 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
 
         self.edge_feature_dims = 5
         self.node_feature_dims = 12
+        self.data = [self.process_obs(i) for i in range(self.__len__())]
 
     def __len__(self):
         return len(self.adj_all)
 
     def __getitem__(self, idx):
+        return self.data[idx]
+
+    def process_obs(self, idx):
         # edge encoding:
         adj_copy = np.asarray(self.adj_all[idx]).copy()
         adj_copy = np.squeeze(adj_copy)  # adj_copy had bs as first dim
