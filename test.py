@@ -60,7 +60,8 @@ def weight_init(m):
         init.constant_(m.bias.data, 0)
     elif isinstance(m, nn.Linear):
         init.xavier_normal_(m.weight.data)
-        init.normal_(m.bias.data)
+        if m.bias != None:
+            init.normal_(m.bias.data)
     elif isinstance(m, nn.LSTM):
         for param in m.parameters():
             if len(param.shape) >= 2:
@@ -224,10 +225,12 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 
 @torch.no_grad()
 def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
-    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand    
-    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device) # create node level token    
+    rnn.eval()
+    output.eval()
+    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand
+    x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device) # create node level token
     x_list, edg_attr_list, edg_idx_list = [], [], [] # initialize empty lists for Data() object
-    
+
     for i in range(max_num_node): # Node RNN for-loop
         h, node_prediction = rnn(x_step)
 
@@ -245,16 +248,16 @@ def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_b
         # token Edge lvl - randn best result
         output_x_step = torch.ones(test_batch_size, 1, edge_feature_dims).to(device)
 
-        
+
         edge_rnn_step = 0
         idx = [k for k in range(i, -1, -1)] # this list is used to create edg_idx
-        for j in range(min(max_prev_node, i + 1)): # Edge/Abs RNN for-loop          
+        for j in range(min(max_prev_node, i + 1)): # Edge/Abs RNN for-loop
             output_y_pred_step_out = output(output_x_step) # prediction for each and every prev node
             output.hidden = output.hidden.data.to(device)
-            output_x_step_argmax = F.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)       
-     
+            output_x_step_argmax = F.one_hot(output_y_pred_step_out.argmax(), num_classes=edge_feature_dims)
+
             if torch.argmax(output_x_step_argmax, dim=-1) != 0:
-                if i + 1 <= max_prev_node:                    
+                if i + 1 <= max_prev_node:
                     idx_select = torch.tensor([1, 2, 3, 4], dtype=torch.long).to(device) # select [1:]
                     edge_to_append = torch.index_select(output_x_step_argmax, dim=-1, index=idx_select).to(device)
 
@@ -332,13 +335,13 @@ guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
 
 # train_guac_mols = mols_from_file(train_data, True)
 # valid_guac_mols = mols_from_file(valid_data, True)
-# train_data = rdkit2pyg([train_guac_mols[3]])  
+# train_data = rdkit2pyg([train_guac_mols[3]])
 # valid_data = rdkit2pyg([valid_guac_mols])
 
 train_guac_mols = mols_from_file(guacm_smiles, True)
-valid_guac_mols = train_guac_mols
-train_data = rdkit2pyg([train_guac_mols[3]])  # train_guac_mols[:50]
-print(Chem.MolToSmiles(train_guac_mols[3]))
+obs = train_guac_mols[6343]
+train_data = rdkit2pyg([obs])
+print(Chem.MolToSmiles(obs))
 
 valid_data = train_data
 # atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
@@ -359,24 +362,24 @@ nweights = {
     'Si':   454.54545454545456,
     'Se':   833.3333333333334
 }
-bweights = { 
-    BT.SINGLE:      4.663287337775892, 
-    BT.AROMATIC:    4.77780803722868, 
-    BT.DOUBLE:      34.74514436607484, 
-    BT.TRIPLE:      969.9321047526673 
+bweights = {
+    BT.SINGLE:      4.663287337775892,
+    BT.AROMATIC:    4.77780803722868,
+    BT.DOUBLE:      34.74514436607484,
+    BT.TRIPLE:      969.9321047526673
 }
 
 nweights_list = [nweights[k] for k in atom2num]
 bweights_list = [bweights[k] for k in bond2num]
 bweights_list.insert(0, 1500)
-node_weights = torch.tensor(nweights_list) 
-edge_weights = torch.tensor(bweights_list) 
+node_weights = torch.tensor(nweights_list)
+edge_weights = torch.tensor(bweights_list)
 #!-------------------------------------------
 
 #! --- SET UP EXPERIMENT ---
 LRrnn, LRout = 1e-5, 1e-5
 wd = 5e-4
-epoch, max_epoch = 1, 5001
+epoch, max_epoch = 1, 15001
 device, cuda, train_log, val_log = setup()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
 rnn, output = get_generator()
@@ -394,7 +397,7 @@ scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=
 def memorize_batch(max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
     global epoch
     rnn.train()
-    output.train()    
+    output.train()
     for _, data in enumerate(data_loader_): data = data
     while epoch <= max_epoch:
         rnn.zero_grad()
