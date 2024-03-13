@@ -354,15 +354,16 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
 
         self.edge_feature_dims = 5
         self.node_feature_dims = 12
-        self.data = [self.process_obs(i) for i in range(self.__len__())]
+        # self.data = [self.process_obs(i) for i in range(self.__len__())]
 
     def __len__(self):
         return len(self.adj_all)
 
-    def __getitem__(self, idx):
-        return self.data[idx]
+    # def __getitem__(self, idx):
+    #     return self.data[idx]
 
-    def process_obs(self, idx):
+    # def process_obs(self, idx):
+    def __getitem__(self, idx):
         # edge encoding:
         adj_copy = np.asarray(self.adj_all[idx]).copy()
         adj_copy = np.squeeze(adj_copy)  # adj_copy had bs as first dim

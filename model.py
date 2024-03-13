@@ -112,7 +112,7 @@ class GRU_plain(nn.Module):
 
     def get_save_path(self): return os.getcwd() + "./weights/"
     def save(self, epoch):
-        self.save_path = os.getcwd() + "./weights/"
+        self.save_path = os.getcwd() + "/weights/"
         checkpoint = {'model_state_dict': self.state_dict(),}
         if self.node_lvl: torch.save(checkpoint, self.save_path + f'nodeRNN_checkpoint_{epoch}.pth')
         else: torch.save(checkpoint, self.save_path + f'edgeRNN_checkpoint_{epoch}.pth')

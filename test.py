@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # from torch_lr_finder import LRFinder
 from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdkit, save_smiles
 from mappings import *
-
+import random
 
 import torch.nn as nn
 import torch.nn.init as init
@@ -316,10 +316,13 @@ def generate_mols(N):
     to_draw = []
     for idx in range(N):
         print(f"{idx+1}/{N}", end='\r')
-        obs = generate_single_obs(rnn, output, device, test_batch_size=1,
-                                    max_num_node=max_num_node,
-                                    max_prev_node=max_prev_node)
-        to_draw.append(obs)
+        try:
+            obs = generate_single_obs(rnn, output, device, test_batch_size=1,
+                                        max_num_node=max_num_node,
+                                        max_prev_node=max_prev_node)
+            to_draw.append(obs)
+        except:
+            pass
 
     smiles_ = pyg2rdkit(to_draw)
     # path = "/home/nobilm@usi.ch/wd/data/generated_smiles/graphRNN_original_thesis_weights/"
@@ -331,19 +334,24 @@ def generate_mols(N):
 #! --- GET DATA ---
 train_data = "./guacamol/guacamol_v1_train.smiles"
 valid_data = "./guacamol/guacamol_v1_valid.smiles"
-guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
+# guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
+
+train_guac_mols = mols_from_file(train_data, True)
+valid_guac_mols = mols_from_file(valid_data, True)
+
+#! TO BE DELETED
+# train_guac_mols = random.sample(train_guac_mols, 1000)
+# valid_guac_mols = random.sample(train_guac_mols, 100)
+
+train_data = rdkit2pyg(train_guac_mols)
+valid_data = rdkit2pyg(valid_guac_mols)
 
 # train_guac_mols = mols_from_file(train_data, True)
-# valid_guac_mols = mols_from_file(valid_data, True)
-# train_data = rdkit2pyg([train_guac_mols[3]])
-# valid_data = rdkit2pyg([valid_guac_mols])
+# obs = train_guac_mols[6343]
+# train_data = rdkit2pyg([obs])
+# print(Chem.MolToSmiles(obs))
 
-train_guac_mols = mols_from_file(guacm_smiles, True)
-obs = train_guac_mols[6343]
-train_data = rdkit2pyg([obs])
-print(Chem.MolToSmiles(obs))
-
-valid_data = train_data
+# valid_data = train_data
 # atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
 #!-------------------------------------------
 
@@ -378,7 +386,7 @@ edge_weights = torch.tensor(bweights_list)
 
 #! --- SET UP EXPERIMENT ---
 LRrnn, LRout = 1e-5, 1e-5
-wd = 5e-4
+# wd = 5e-4
 epoch, max_epoch = 1, 15001
 device, cuda, train_log, val_log = setup()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
@@ -394,27 +402,31 @@ scheduler_rnn = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn,
 scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 
 
-def memorize_batch(max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
-    global epoch
-    rnn.train()
-    output.train()
-    for _, data in enumerate(data_loader_): data = data
-    while epoch <= max_epoch:
-        rnn.zero_grad()
-        output.zero_grad()
-        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-        loss.backward(retain_graph=True)
-        optimizer_output.step()
-        optimizer_rnn.step()
-        scheduler_rnn.step()
-        scheduler_output.step()
-        if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
-        epoch += 1
+# def memorize_batch(max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
+#     global epoch
+#     rnn.train()
+#     output.train()
+#     for _, data in enumerate(data_loader_): data = data
+#     while epoch <= max_epoch:
+#         rnn.zero_grad()
+#         output.zero_grad()
+#         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
+#         loss.backward(retain_graph=True)
+#         optimizer_output.step()
+#         optimizer_rnn.step()
+#         scheduler_rnn.step()
+#         scheduler_output.step()
+#         if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
+#         epoch += 1
 
+print("start training")
 
-VALIDATION = False
+VALIDATION = True
 GENERATE = True
-min_val_loss = 0
+min_val_loss = torch.inf
+min_val_epoch = 0
+Ns = [1000]#, 60000, 110000, 160000, 210000]
+val_every = 50
 
 try:
     while epoch <= max_epoch:
@@ -424,14 +436,17 @@ try:
                                                                 node_weights=node_weights, edge_weights=edge_weights)
         scheduler_rnn.step()
         scheduler_output.step()
-        if epoch % 100 == 0:
-            train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-        if VALIDATION and epoch % 100 == 0:
+        # if epoch % 100 == 0:
+        train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+        if VALIDATION: # and epoch % val_every == 0:
             rnn.eval()
             output.eval()
             val_loss, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
             val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {val_loss:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+            if epoch % val_every == 0:
+                for i in Ns: generate_mols(i)
             if val_loss <= min_val_loss:
+                min_val_epoch = epoch
                 min_val_loss = val_loss
                 rnn.save(epoch)
                 output.save(epoch)
@@ -440,6 +455,8 @@ except KeyboardInterrupt:
     print("kyeboard interrupt!")
 finally:
     if GENERATE:
-        Ns = [10]#, 60000, 110000, 160000, 210000]
+        Ns = [10000]#, 60000, 110000, 160000, 210000]
         for i in Ns: generate_mols(i)
 
+
+print(f"min val loss at epoch: {min_val_epoch}, with a value {min_val_loss}")
