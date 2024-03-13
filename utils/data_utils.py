@@ -90,7 +90,10 @@ def pyg2rdkit(dataset):
 
     mols_ = []
     for i, obs in enumerate(dataset):
-        ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
+        try:
+            ef_temp = torch.squeeze(to_dense_adj(edge_index=obs.edge_index, batch=None, edge_attr=obs.edge_attr), 0)
+        except:
+            continue
         ef = torch.zeros((ef_temp.shape[0], ef_temp.shape[1], 1))
         adj = torch.zeros((ef_temp.shape[0], ef_temp.shape[1]))
 
@@ -309,10 +312,7 @@ def encode_adj(adj, original, max_prev_node, edge_feature_dims):
     original_tril_idx = np.nonzero(original_tril)
 
     # begin by setting all as absent
-    for r in range(temp.shape[0]):
-        for c in range(temp.shape[1]):
-            temp[r, c, 0] = 1
-
+    temp[:,:,0]=1
     for index in range(len(original_tril_idx[0])):
         i = original_tril_idx[0][index]
         j = original_tril_idx[1][index]
@@ -370,18 +370,13 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
         x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
         y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.edge_feature_dims))
 
-        original_a = np.asarray(nx.adjacency_matrix(self.graph_list[idx]).todense())  # A without edge features of the current g
-        # original_a = np.asarray(nx.from_numpy_array(self.graph_list[idx]))  # A without edge features of the current g
+        original_a = nx.adjacency_matrix(self.graph_list[idx]).todense()  # A without edge features of the current g
         adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, edge_feature_dims = self.edge_feature_dims)
 
         x_batch[0, :, :] = 1
         x_batch[1:adj_encoded.shape[0] + 1, :] = adj_encoded
         y_batch[0:adj_encoded.shape[0], :] = adj_encoded
-
-        for r in range(y_batch.shape[0]):
-            for c in range(y_batch.shape[1]):
-                if np.sum(y_batch[r, c, :]) == 0:
-                    y_batch[r, c, 0] = 1
+        y_batch[np.all(y_batch == 0, axis=-1), 0] = 1
 
         # node encoding:
         node_attr_list_copy = np.asarray(self.node_attr_list[idx]).copy()
@@ -395,6 +390,5 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
         # output nodes:
         y_node_attr[:node_attr_list_copy.shape[0], :] = node_attr_list_copy
 
-        len_batch = node_attr_list_copy.shape[0]  # number of nodes of current g
-
-        return {'x': x_batch, 'y': y_batch, 'len': len_batch, 'x_node_attr': x_node_attr, 'y_node_attr': y_node_attr}
+        # len_batch = number of nodes of current g
+        return {'x': x_batch, 'y': y_batch, 'len': node_attr_list_copy.shape[0], 'x_node_attr': x_node_attr, 'y_node_attr': y_node_attr}

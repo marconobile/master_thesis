@@ -19,6 +19,8 @@ import random
 
 import torch.nn as nn
 import torch.nn.init as init
+
+
 def weight_init(m):
     '''
     Usage:
@@ -94,6 +96,7 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
     output.train()
     loss_sum, loss_sum_edges, loss_sum_nodes = 0, 0, 0
 
+    N = len(data_loader_)
     for batch_idx, data in enumerate(data_loader_):
 
         rnn.zero_grad()
@@ -108,8 +111,9 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         loss_sum += loss.data
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
+        print(f'Batch {batch_idx+1}/{N} Loss: {loss.data}, loss edges {edge_loss.data}, loss nodes {node_loss.data}')
 
-    return loss_sum / (batch_idx + 1), loss_sum_edges / (batch_idx + 1), loss_sum_nodes / (batch_idx + 1)
+    return loss_sum/N, loss_sum_edges/N, loss_sum_nodes/N
 
 
 @torch.no_grad()
@@ -227,7 +231,7 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
     rnn.eval()
     output.eval()
-    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand
+    rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)  # rand
     x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device) # create node level token
     x_list, edg_attr_list, edg_idx_list = [], [], [] # initialize empty lists for Data() object
 
@@ -331,29 +335,16 @@ def generate_mols(N):
     save_smiles(smiles_, ".", filename, "smiles")
 
 
-#! --- GET DATA ---
-train_data = "./guacamol/guacamol_v1_train.smiles"
-valid_data = "./guacamol/guacamol_v1_valid.smiles"
-# guacm_smiles = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
+# --- GET DATA ---
+train_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_train.smiles", True))
+valid_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_valid.smiles", True))
 
-train_guac_mols = mols_from_file(train_data, True)
-valid_guac_mols = mols_from_file(valid_data, True)
-
-#! TO BE DELETED
-# train_guac_mols = random.sample(train_guac_mols, 1000)
-# valid_guac_mols = random.sample(train_guac_mols, 100)
-
-train_data = rdkit2pyg(train_guac_mols)
-valid_data = rdkit2pyg(valid_guac_mols)
-
-# train_guac_mols = mols_from_file(train_data, True)
+# train_guac_mols = mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles", True)
 # obs = train_guac_mols[6343]
-# train_data = rdkit2pyg([obs])
 # print(Chem.MolToSmiles(obs))
-
+# train_data = rdkit2pyg([obs])
 # valid_data = train_data
-# atom2num, num2atom, max_num_node = get_atoms_info(guac_mols)
-#!-------------------------------------------
+
 
 #! --- GET WEIGHTS ---
 nweights = {
@@ -382,18 +373,18 @@ bweights_list = [bweights[k] for k in bond2num]
 bweights_list.insert(0, 1500)
 node_weights = torch.tensor(nweights_list)
 edge_weights = torch.tensor(bweights_list)
-#!-------------------------------------------
+
 
 #! --- SET UP EXPERIMENT ---
 LRrnn, LRout = 1e-5, 1e-5
 # wd = 5e-4
 epoch, max_epoch = 1, 15001
 device, cuda, train_log, val_log = setup()
-train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node) #! HERE WORKERS
+train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node)
+
 rnn, output = get_generator()
 rnn.apply(weight_init)
 output.apply(weight_init)
-
 rnn.ad_hoc_init()
 output.ad_hoc_init()
 optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LRrnn)  # , weight_decay=wd)
@@ -402,31 +393,13 @@ scheduler_rnn = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn,
 scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 
 
-# def memorize_batch(max_epoch, rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights, scheduler_rnn=None, scheduler_output=None):
-#     global epoch
-#     rnn.train()
-#     output.train()
-#     for _, data in enumerate(data_loader_): data = data
-#     while epoch <= max_epoch:
-#         rnn.zero_grad()
-#         output.zero_grad()
-#         loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
-#         loss.backward(retain_graph=True)
-#         optimizer_output.step()
-#         optimizer_rnn.step()
-#         scheduler_rnn.step()
-#         scheduler_output.step()
-#         if epoch % 500 == 0: print(f'Epoch: {epoch}/{max_epoch}, lossEdges {edge_loss:.8f}, lossNodes {node_loss:.8f}')
-#         epoch += 1
-
 print("start training")
-
 VALIDATION = True
 GENERATE = True
 min_val_loss = torch.inf
 min_val_epoch = 0
 Ns = [1000]#, 60000, 110000, 160000, 210000]
-val_every = 50
+gen_every = 10
 
 try:
     while epoch <= max_epoch:
@@ -436,14 +409,11 @@ try:
                                                                 node_weights=node_weights, edge_weights=edge_weights)
         scheduler_rnn.step()
         scheduler_output.step()
-        # if epoch % 100 == 0:
         train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-        if VALIDATION: # and epoch % val_every == 0:
-            rnn.eval()
-            output.eval()
+        if VALIDATION:
             val_loss, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
             val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {val_loss:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-            if epoch % val_every == 0:
+            if epoch % gen_every == 0:
                 for i in Ns: generate_mols(i)
             if val_loss <= min_val_loss:
                 min_val_epoch = epoch
