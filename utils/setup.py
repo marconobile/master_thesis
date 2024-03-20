@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 import random
-from model import get_generator
+# from model import get_generator
 import torch
 
 
@@ -17,24 +17,14 @@ def setup_logger(logger_name, log_file, level=logging.INFO):
     l.addHandler(fileHandler)
     l.addHandler(streamHandler)
 
-
-def setup():
-    '''
-    Setup of loggers, cuda and seeds.
-    '''
-    setup_logger('train_loss_log', r'./train_loss_log')
-    setup_logger('val_loss_log', r'./val_loss_log')
-
-    train_log = logging.getLogger('train_loss_log')
-    val_log = logging.getLogger('val_loss_log')
-
+def setup_device(device: int):
     manualSeed = 123
     np.random.seed(manualSeed)
     random.seed(manualSeed)
     torch.manual_seed(manualSeed)
 
     cuda = True if torch.cuda.is_available() else False
-    device = torch.device("cuda:0" if cuda else "cpu")
+    device = torch.device(f"cuda:{device}" if cuda else "cpu")
 
     if cuda:
         torch.cuda.manual_seed(manualSeed)
@@ -43,26 +33,37 @@ def setup():
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = False
 
-    return device, cuda, train_log, val_log
+    return device, cuda
 
-
-def load_nets(cuda, device, to_be_loaded):  
-    ''' 
-    to_be_loaded = int(last_epoch)
+def setup_loss_loggers():
     '''
-    path = "./weights"
-    rnn, output = get_generator()
-    PATH1 = path + f'/nodeRNN_checkpoint_{to_be_loaded}.pth'
-    if cuda: checkpoint1 = torch.load(PATH1)
-    else: checkpoint1 = torch.load(PATH1, map_location='cpu')
-    rnn.load_state_dict(checkpoint1['model_state_dict'])
-    PATH2 = path + f'/edgeRNN_checkpoint_{to_be_loaded}.pth'
-    if cuda: checkpoint2 = torch.load(PATH2)
-    else: checkpoint2 = torch.load(PATH2, map_location='cpu')
-    output.load_state_dict(checkpoint2['model_state_dict'])
+    Setup of loggers, cuda and seeds.
+    '''
+    setup_logger('train_loss_log', r'./train_loss_log')
+    setup_logger('val_loss_log', r'./val_loss_log')
 
-    rnn.to(device)
-    output.to(device)
-    rnn.eval()
-    output.eval()
-    return rnn, output
+    train_log = logging.getLogger('train_loss_log')
+    val_log = logging.getLogger('val_loss_log')
+    return train_log, val_log
+
+
+# def load_nets(cuda, device, to_be_loaded):
+#     '''
+#     to_be_loaded = int(last_epoch)
+#     '''
+#     path = "./weights"
+#     rnn, output = get_generator()
+#     PATH1 = path + f'/nodeRNN_checkpoint_{to_be_loaded}.pth'
+#     if cuda: checkpoint1 = torch.load(PATH1)
+#     else: checkpoint1 = torch.load(PATH1, map_location='cpu')
+#     rnn.load_state_dict(checkpoint1['model_state_dict'])
+#     PATH2 = path + f'/edgeRNN_checkpoint_{to_be_loaded}.pth'
+#     if cuda: checkpoint2 = torch.load(PATH2)
+#     else: checkpoint2 = torch.load(PATH2, map_location='cpu')
+#     output.load_state_dict(checkpoint2['model_state_dict'])
+
+#     rnn.to(device)
+#     output.to(device)
+#     rnn.eval()
+#     output.eval()
+#     return rnn, output

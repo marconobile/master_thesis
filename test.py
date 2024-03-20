@@ -1,24 +1,34 @@
-from functools import partial
 import torch.nn as nn
 from model import get_generator
 from supervised_tools.create_train_val_data import create_train_val_dataloaders
-from torch_geometric.utils import to_dense_adj
 import numpy as np
-import os
 from torch_geometric.data import Data
 import torch.nn.functional as F
 from rdkit import Chem
-from utils.setup import setup
+from utils.setup import setup_loss_loggers, setup_device
 import torch
-print(torch.__version__)
-import matplotlib.pyplot as plt
-# from torch_lr_finder import LRFinder
-from utils.data_utils import mols_from_file, get_atoms_info, rdkit2pyg, pyg2rdkit, save_smiles
+from utils.data_utils import mols_from_file, rdkit2pyg, pyg2rdkit, save_smiles
 from mappings import *
-import random
-
-import torch.nn as nn
 import torch.nn.init as init
+import time
+
+class TimeCode:
+    '''
+    Utility class that times code execution.
+    Usage: instanciate it when code starts
+    call compute compute_ellapsed when you want to evaluate passed time
+    '''
+
+    def __init__(self):
+        self.start_timer()
+
+    def start_timer(self):
+        self.start = time.time()
+
+    def compute_ellapsed(self):
+        self.end = time.time()
+        print(self.end - self.start)
+        return self.end - self.start  # in seconds
 
 
 def weight_init(m):
@@ -111,7 +121,8 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         loss_sum += loss.data
         loss_sum_edges += edge_loss.data
         loss_sum_nodes += node_loss.data
-        print(f'Batch {batch_idx+1}/{N} Loss: {loss.data}, loss edges {edge_loss.data}, loss nodes {node_loss.data}')
+        if not MEMORIZATION:
+            print(f'Batch {batch_idx+1}/{N} Loss: {loss.data}, loss edges {edge_loss.data}, loss nodes {node_loss.data}')
 
     return loss_sum/N, loss_sum_edges/N, loss_sum_nodes/N
 
@@ -231,7 +242,11 @@ def fit_batch(data, rnn, output, node_weights, edge_weights):
 def generate_single_obs(rnn, output, device, max_num_node, max_prev_node, test_batch_size=1):
     rnn.eval()
     output.eval()
-    rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)  # rand
+    if MEMORIZATION:
+        rnn.hidden = rnn.init_hidden(test_batch_size).to(device)  # rand
+    else:
+        rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)  # rand
+
     x_step = torch.ones((test_batch_size, 1, max_prev_node * edge_feature_dims + node_feature_dims)).to(device) # create node level token
     x_list, edg_attr_list, edg_idx_list = [], [], [] # initialize empty lists for Data() object
 
@@ -336,14 +351,15 @@ def generate_mols(N):
 
 
 # --- GET DATA ---
-train_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_train.smiles", True))
-valid_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_valid.smiles", True))
+# train_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_train.smiles", True))
+# valid_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_valid.smiles", True))
 
-# train_guac_mols = mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles", True)
-# obs = train_guac_mols[6343]
-# print(Chem.MolToSmiles(obs))
-# train_data = rdkit2pyg([obs])
-# valid_data = train_data
+train_guac_mols = mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles", True)
+MEMORIZATION = True
+obs = train_guac_mols[6343]
+print(Chem.MolToSmiles(obs))
+train_data = rdkit2pyg([obs])
+valid_data = train_data
 
 
 #! --- GET WEIGHTS ---
@@ -379,7 +395,8 @@ edge_weights = torch.tensor(bweights_list)
 LRrnn, LRout = 1e-5, 1e-5
 # wd = 5e-4
 epoch, max_epoch = 1, 15001
-device, cuda, train_log, val_log = setup()
+device, cuda = setup_device(2)
+train_log, val_log = setup_loss_loggers()
 train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node)
 
 rnn, output = get_generator()
@@ -394,13 +411,14 @@ scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=
 
 
 print("start training")
-VALIDATION = True
-GENERATE = True
+VALIDATION = False
 min_val_loss = torch.inf
 min_val_epoch = 0
 Ns = [1000]#, 60000, 110000, 160000, 210000]
 gen_every = 10
 
+
+timer = TimeCode()
 try:
     while epoch <= max_epoch:
         loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
@@ -423,10 +441,8 @@ try:
         epoch += 1
 except KeyboardInterrupt:
     print("kyeboard interrupt!")
-finally:
-    if GENERATE:
-        Ns = [10000]#, 60000, 110000, 160000, 210000]
-        for i in Ns: generate_mols(i)
 
-
+timer.compute_ellapsed()
 print(f"min val loss at epoch: {min_val_epoch}, with a value {min_val_loss}")
+Ns = [10]#, 60000, 110000, 160000, 210000]
+for i in Ns: generate_mols(i)

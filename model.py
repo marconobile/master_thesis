@@ -3,10 +3,11 @@ import torch
 from mappings import node_feature_dims, edge_feature_dims, max_prev_node
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.setup import setup_device
 
 
-cuda = True if torch.cuda.is_available() else False
-device = torch.device("cuda:0" if cuda else "cpu")
+device, cuda = setup_device(2)
+
 
 def get_generator():
     embedding_size_rnn = 256 *4
