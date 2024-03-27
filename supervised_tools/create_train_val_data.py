@@ -1,12 +1,14 @@
 from collections import Counter
 from torch.utils.data import DataLoader, Dataset
-from utils.data_utils import to_networkx, to_undirected, encode_adj, Graph_sequence_sampler_pytorch
+from utils.data_utils import to_undirected, encode_adj, Graph_sequence_sampler_pytorch
 from torch_geometric.utils import to_dense_adj
 import torch
 import numpy as np
-from networkx import to_numpy_matrix
+# from networkx import to_numpy_matrix
+import networkx as nx
 from args import Args
 
+from torch_geometric.utils import to_networkx
 
 def process_subset(subset, max_num_node, max_prev_node):
     '''
@@ -107,7 +109,8 @@ class weights_sampler(Dataset):
         x_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
         y_batch = np.zeros((self.max_num_node, self.max_prev_node, self.args_.edge_feature_dims))
 
-        original_a = np.asarray(to_numpy_matrix(self.graph_list[idx]))
+        # original_a = np.asarray(to_numpy_matrix(self.graph_list[idx]))
+        original_a = nx.adjacency_matrix(self.graph_list[idx]).todense()  # A without edge features of the current g
         adj_encoded = encode_adj(adj=adj_copy, original=original_a, max_prev_node=self.max_prev_node, args=self.args_)
 
         x_batch[0, :, :] = 1

@@ -1,12 +1,35 @@
 from supervised_tools.create_train_val_data import create_train_val_dataloaders, get_log_weights
 import torch
-from utils.data_utils import mols_smiles_plots, mols_txt
+from utils.data_utils import mols_smiles_plots, mols_txt, pyg2rdkit
 from supervised_tools.save_load_model import save
 from supervised_tools.supervised_train_loop import train_rnn_epoch, test_rnn_single_epoch
 from supervised_tools.generate_single_obs import generate_single_obs
 from supervised_tools.supervised_model import get_generator
 from args import Args
 import pickle
+from rdkit import Chem
+import os
+
+def save_smiles(smiles, path, filename, ext='.txt'):
+    '''
+    saves smiles in a file at path
+    extension can be provided in filename or as separate arg
+    args:
+        - smiles str iterable
+        - path directory where to save smiles
+        - filename name of the file, must not have extension
+    '''
+    path_to_file = os.path.join(path, filename)
+    filename_ext = os.path.splitext(path_to_file)[-1].lower()
+    if not filename_ext:
+        if ext not in ['.txt', '.smiles']:
+            raise f"extension {ext} not valid"
+        path_to_file += ext
+
+    # path_to_file = generate_file(path, filename)
+    with open(path_to_file, "w+") as f:
+        f.writelines("%s\n" % smi for smi in smiles)
+
 
 
 def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, test_set):
@@ -25,7 +48,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
     train_dataset_loader, _ = create_train_val_dataloaders(dataset, max_num_node,
                                                            max_prev_node)
 
-    if args.test_set:
+    if False: #args.test_set:
         test_dataset_loader, _ = create_train_val_dataloaders(test_set, max_num_node,
                                                               max_prev_node)
 
@@ -58,7 +81,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
 
     epoch = 1  # starting epoch
     max_epoch = 3001
-    patience = 100
+    patience = 3000
     counter_test = 0
 
     while epoch <= max_epoch:
@@ -76,7 +99,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
         train_log.info(
             f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f} , loss_abs {loss_abs:.8f}')
 
-        if args.test_set and epoch % patience == 0:
+        if False: #args.test_set and epoch % patience == 0:
             test_loss, loss_edg_test, loss_nodes_test, loss_abs = test_rnn_single_epoch(rnn=rnn,
                                                                                         output=output,
                                                                                         data_loader_=test_dataset_loader,
@@ -106,8 +129,11 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
                                           max_prev_node=max_prev_node)
                 to_draw.append(obs)
 
-            rdkit_mols, mols_smiles = mols_smiles_plots(to_draw, './figures/FIG_epoch_' + str(epoch))
-            mols_txt(epoch, rdkit_mols, mols_smiles, qm9_smiles)
+            mols_ = pyg2rdkit(to_draw)
+            smiles_ = [Chem.MolToSmiles(m) for m in mols_]
+            save_smiles(smiles_, ".", "test", "smiles")
+            # rdkit_mols, mols_smiles = mols_smiles_plots(to_draw, './figures/FIG_epoch_' + str(epoch))
+            # mols_txt(epoch, rdkit_mols, mols_smiles, qm9_smiles)
 
         epoch += 1
 

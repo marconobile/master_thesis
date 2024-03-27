@@ -17,33 +17,27 @@ except ImportError:
 
 args = Args()
 
-if args.ZINC_filtered == False:
-    BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
-                1:rdc.rdchem.BondType.DOUBLE,
-                2:rdc.rdchem.BondType.TRIPLE}
-else:
-    BOND_MAP = {0:rdc.rdchem.BondType.SINGLE,
-                1:rdc.rdchem.BondType.DOUBLE,
-                2:rdc.rdchem.BondType.TRIPLE,
-                3:rdc.rdchem.BondType.AROMATIC}
+# if args.ZINC_filtered == False:
+#     BOND_MAP = {0: rdc.rdchem.BondType.SINGLE,
+#                 1:rdc.rdchem.BondType.DOUBLE,
+#                 2:rdc.rdchem.BondType.TRIPLE}
+# else:
+BOND_MAP = {0:rdc.rdchem.BondType.SINGLE,
+            1:rdc.rdchem.BondType.DOUBLE,
+            2:rdc.rdchem.BondType.TRIPLE,
+            3:rdc.rdchem.BondType.AROMATIC}
 
-    SYMBOL_TO_NUM = {'C': 0,
-                     'O': 1,
-                     'N': 2,
-                     'F': 3,
-                     'S': 4,
-                     'Cl': 5,
-                     'Br': 6,
-                     'I': 7,
-                     'P': 8
-                     }
-    NUM_TO_SYMBOL = {v: k for k, v in SYMBOL_TO_NUM.items()}
+
+
+SYMBOL_TO_NUM = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
+NUM_TO_SYMBOL = {v: k for k, v in SYMBOL_TO_NUM.items()}
+
 
 
 def numpy_to_rdkit(adj, nf, ef, sanitize=False):
     """
     Converts a molecule from numpy to RDKit format.
-    :param adj: binary numpy array of shape (N, N) 
+    :param adj: binary numpy array of shape (N, N)
     :param nf: numpy array of shape (N, F)
     :param ef: numpy array of shape (N, N, S)
     :param sanitize: whether to sanitize the molecule after conversion
@@ -74,9 +68,9 @@ def numpy_to_rdkit(adj, nf, ef, sanitize=False):
 def numpy_to_smiles(adj, nf, ef):
     """
     Converts a molecule from numpy to SMILES format.
-    :param adj: binary numpy array of shape (N, N) 
+    :param adj: binary numpy array of shape (N, N)
     :param nf: numpy array of shape (N, F)
-    :param ef: numpy array of shape (N, N, S) 
+    :param ef: numpy array of shape (N, N, S)
     :return: the SMILES string of the molecule
     """
     if rdc is None:
@@ -89,7 +83,7 @@ def rdkit_to_smiles(mol):
     """
     Returns the SMILES string representing an RDKit molecule.
     :param mol: an RDKit molecule
-    :return: the SMILES string of the molecule 
+    :return: the SMILES string of the molecule
     """
     if rdc is None:
         raise ImportError('`rdkit_to_smiles` requires RDkit.')
@@ -153,7 +147,7 @@ def validate_rdkit_mol(mol):
     """
     Sanitizes an RDKit molecules and returns True if the molecule is chemically
     valid.
-    :param mol: an RDKit molecule 
+    :param mol: an RDKit molecule
     :return: True if the molecule is chemically valid, False otherwise
     """
     if rdc is None:
@@ -169,9 +163,9 @@ def validate_rdkit_mol(mol):
 
 def validate_rdkit(mol):
     """
-    Validates RDKit molecules (single or in a list). 
+    Validates RDKit molecules (single or in a list).
     :param mol: an RDKit molecule or list/np.array thereof
-    :return: boolean array, True if the molecules are chemically valid, False 
+    :return: boolean array, True if the molecules are chemically valid, False
     otherwise
     """
     if rdc is None:
@@ -202,7 +196,7 @@ def get_atomic_num(symbol):
 
 def valid_score(molecules, from_numpy=False):
     """
-    For a given list of molecules (RDKit or numpy format), returns a boolean 
+    For a given list of molecules (RDKit or numpy format), returns a boolean
     array representing the validity of each molecule.
     :param molecules: list of molecules (RDKit or numpy format)
     :param from_numpy: whether the molecules are in numpy format
@@ -222,11 +216,11 @@ def valid_score(molecules, from_numpy=False):
 
 def novel_score(molecules, smiles, from_numpy=False):
     """
-    For a given list of molecules (RDKit or numpy format), returns a boolean 
+    For a given list of molecules (RDKit or numpy format), returns a boolean
     array representing valid and novel molecules with respect to the list
     of smiles provided (a molecule is novel if its SMILES is not in the list).
     :param molecules: list of molecules (RDKit or numpy format)
-    :param smiles: list or set of smiles strings against which to check for 
+    :param smiles: list or set of smiles strings against which to check for
     novelty
     :param from_numpy: whether the molecules are in numpy format
     :return: boolean array with the novelty for each valid molecule
@@ -282,8 +276,8 @@ def enable_rdkit_log():
 def plot_rdkit(mol, filename=None):
     """
     Plots an RDKit molecule in Matplotlib
-    :param mol: an RDKit molecule 
-    :param filename: save the image with the given filename 
+    :param mol: an RDKit molecule
+    :param filename: save the image with the given filename
     :return: the image as np.array
     """
     if rdc is None:
