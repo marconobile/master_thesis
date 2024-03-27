@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from utils.setup import setup_device
 
 
-device, cuda = setup_device(2)
+device, cuda = setup_device(1)
 
 
 def get_generator():
@@ -47,16 +47,19 @@ class GRU_plain(nn.Module):
 
         # Layers
         self.embedding = nn.Linear(input_size, embedding_size)
-        self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)
+        self.embedding_act = nn.Tanh()
+        self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True, dropout=.1)
 
         self.output1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
         self.norm_output1= nn.LayerNorm(out_middle_layer)
         self.output2 = nn.Linear(out_middle_layer, output_size)
+        self.output_lrelu = nn.LeakyReLU()
 
         if node_lvl:
             self.node_mlp1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
             self.norm_node_mlp1= nn.LayerNorm(out_middle_layer)
             self.node_mlp2 = nn.Linear(out_middle_layer, node_feature_dims)
+            self.node_lrelu = nn.LeakyReLU()
 
     def ad_hoc_init(self):
         for name, param in self.rnn.named_parameters():
@@ -86,7 +89,8 @@ class GRU_plain(nn.Module):
     def forward(self, input_raw, pack=False, input_len=None):
         # embed binary vector
         input = self.embedding(input_raw)
-        input = F.leaky_relu(input)
+        # input = F.leaky_relu(input)
+        input = self.embedding_act(input)
         # pack sequences
         if pack:
             input = nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
@@ -99,13 +103,13 @@ class GRU_plain(nn.Module):
         # else:
         output_raw_1 = self.output1(output_raw)
         output_raw_1 = self.norm_output1(output_raw_1)
-        output_raw_1 = F.leaky_relu(output_raw_1)
+        output_raw_1 = self.output_lrelu(output_raw_1)
         output_raw_1 = self.output2(output_raw_1)
 
         if self.node_lvl:
             node_pred = self.node_mlp1(output_raw)
             node_pred = self.norm_node_mlp1(node_pred)
-            node_pred = F.leaky_relu(node_pred)
+            node_pred = self.node_lrelu(node_pred)
             node_pred = self.node_mlp2(node_pred)
             return output_raw_1, node_pred
         else:
@@ -113,7 +117,7 @@ class GRU_plain(nn.Module):
 
     def get_save_path(self): return os.getcwd() + "./weights/"
     def save(self, epoch):
-        self.save_path = os.getcwd() + "/weights/"
+        self.save_path = os.getcwd() + "/weights_new_abs/"
         checkpoint = {'model_state_dict': self.state_dict(),}
         if self.node_lvl: torch.save(checkpoint, self.save_path + f'nodeRNN_checkpoint_{epoch}.pth')
         else: torch.save(checkpoint, self.save_path + f'edgeRNN_checkpoint_{epoch}.pth')

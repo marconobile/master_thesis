@@ -17,7 +17,10 @@ def setup_logger(logger_name, log_file, level=logging.INFO):
     l.addHandler(fileHandler)
     l.addHandler(streamHandler)
 
-def setup_device(device: int):
+
+def setup_device(device: int = None):
+
+    if device == None: device = 0
     manualSeed = 123
     np.random.seed(manualSeed)
     random.seed(manualSeed)
@@ -39,11 +42,11 @@ def setup_loss_loggers():
     '''
     Setup of loggers, cuda and seeds.
     '''
-    setup_logger('train_loss_log', r'./train_loss_log')
-    setup_logger('val_loss_log', r'./val_loss_log')
+    setup_logger('train_loss_log_new_abs', r'./train_loss_log_new_abs')
+    setup_logger('val_loss_log_new_abs', r'./val_loss_log_new_abs')
 
-    train_log = logging.getLogger('train_loss_log')
-    val_log = logging.getLogger('val_loss_log')
+    train_log = logging.getLogger('train_loss_log_new_abs')
+    val_log = logging.getLogger('val_loss_log_new_abs')
     return train_log, val_log
 
 
