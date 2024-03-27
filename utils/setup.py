@@ -20,7 +20,7 @@ def setup_logger(logger_name, log_file, level=logging.INFO):
 
 def setup_device(device: int = None):
 
-    if device == None: device = 0
+    if device == None: device = 1
     manualSeed = 123
     np.random.seed(manualSeed)
     random.seed(manualSeed)

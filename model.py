@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from utils.setup import setup_device
 
 
-device, cuda = setup_device(1)
+device, cuda = setup_device()
 
 
 def get_generator():
@@ -46,9 +46,9 @@ class GRU_plain(nn.Module):
         self.hidden = None  # need initialize before forward run
 
         # Layers
-        self.embedding = nn.Linear(input_size, embedding_size)
+        self.embedding = nn.Linear(input_size, embedding_size, bias=False)
         self.embedding_act = nn.Tanh()
-        self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True, dropout=.1)
+        self.rnn = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=self.num_layers, batch_first=True)#, dropout=.1)
 
         self.output1 = nn.Linear(hidden_size, out_middle_layer, bias=False)
         self.norm_output1= nn.LayerNorm(out_middle_layer)
@@ -66,15 +66,13 @@ class GRU_plain(nn.Module):
             if 'bias' in name: nn.init.normal_(param, 0.0,  0.1)
             elif 'weight' in name: nn.init.orthogonal_(param, gain=nn.init.calculate_gain('sigmoid'))
 
-        # torch.nn.init.xavier_normal_(self.embedding.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
+        torch.nn.init.xavier_normal_(self.embedding.weight, gain=torch.nn.init.calculate_gain('linear'))
         if self.node_lvl:
             torch.nn.init.xavier_normal_(self.node_mlp1.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
-            # torch.nn.init.xavier_normal_(self.node_mlp2.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
             self.node_mlp2.weight.data = self.node_mlp2.weight.data * .01
             torch.nn.init.zeros_(self.node_mlp2.bias)
         else:
             torch.nn.init.xavier_normal_(self.output1.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
-            # torch.nn.init.xavier_normal_(self.output2.weight, gain=torch.nn.init.calculate_gain('leaky_relu'))
             self.output2.weight.data = self.output2.weight.data * .01
             torch.nn.init.zeros_(self.output2.bias)
 
@@ -87,20 +85,17 @@ class GRU_plain(nn.Module):
     def init_hidden_rand(self, batch_size): return torch.rand((self.num_layers, batch_size, self.hidden_size), requires_grad=True).to(device)
 
     def forward(self, input_raw, pack=False, input_len=None):
-        # embed binary vector
+
         input = self.embedding(input_raw)
-        # input = F.leaky_relu(input)
-        input = self.embedding_act(input)
+
         # pack sequences
-        if pack:
-            input = nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
-        # pass them thru the rnn
+        if pack: input = nn.utils.rnn.pack_padded_sequence(input, input_len, batch_first=True)
+
         output_raw, self.hidden = self.rnn(input, self.hidden)
 
         # unpack sequences
-        if pack:
-            output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
-        # else:
+        if pack: output_raw = nn.utils.rnn.pad_packed_sequence(output_raw, batch_first=True)[0]
+
         output_raw_1 = self.output1(output_raw)
         output_raw_1 = self.norm_output1(output_raw_1)
         output_raw_1 = self.output_lrelu(output_raw_1)
@@ -116,6 +111,7 @@ class GRU_plain(nn.Module):
             return output_raw_1
 
     def get_save_path(self): return os.getcwd() + "./weights/"
+
     def save(self, epoch):
         self.save_path = os.getcwd() + "/weights_new_abs/"
         checkpoint = {'model_state_dict': self.state_dict(),}

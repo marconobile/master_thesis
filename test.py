@@ -166,7 +166,6 @@ def train_rnn_epoch(rnn, output, data_loader_, optimizer_rnn, optimizer_output, 
         loss_sum += loss.item()
         loss_sum_edges += edge_loss.item()
         loss_sum_nodes += node_loss.item()
-        print(f'Batch {batch_idx+1}/{N}', end='\r')
 
     return loss_sum/N, loss_sum_edges/N, loss_sum_nodes/N
 
@@ -393,70 +392,92 @@ def generate_mols(N):
 
     smiles_ = pyg2rdkit(to_draw)
     # path = "/home/nobilm@usi.ch/wd/data/generated_smiles/graphRNN_original_thesis_weights/"
-    filename = f"original_thesis_weights_all_{epoch}_{N}_new_abs_1000.smiles"
+    if MEMORIZATION:
+        filename = f"original_thesis_weights_all_{epoch}_{N}_mol_{OBS_IDX}.smiles"
+    else:
+        filename = f"original_thesis_weights_all_{epoch}_{N}.smiles"
+
     smiles_ = [Chem.MolToSmiles(m) for m in smiles_]
     save_smiles(smiles_, ".", filename, "smiles")
 
 
+def memorize(rnn, output, data_loader_, optimizer_rnn, optimizer_output, node_weights, edge_weights):
+    rnn.train()
+    output.train()
+    for _, data in enumerate(data_loader_):
+        data = data
+        break
+    epoch = 0
+    while epoch <= max_epoch:
+        rnn.zero_grad()
+        output.zero_grad()
+        loss, edge_loss, node_loss = fit_batch(data, rnn, output, node_weights, edge_weights)
+        loss.backward(retain_graph=True)
+        optimizer_output.step()
+        optimizer_rnn.step()
+        if epoch % 100: print(epoch, loss.item(),  edge_loss.item(), node_loss.item())
+        epoch+=1
+
+
 # --- GET DATA ---
-MEMORIZATION = False
-train_data = rdkit2pyg(mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/30k_test.smiles", True)); valid_data = train_data
+# MEMORIZATION = False
+# train_data = rdkit2pyg(mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/30k_test.smiles", True)); valid_data = train_data
 
 # train_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_train.smiles", True))
 # valid_data = rdkit2pyg(mols_from_file("./guacamol/guacamol_v1_valid.smiles", True))
 
-# MEMORIZATION = True
-# obs = train_guac_mols[6343]
-# # with old weights: 1 2 6343 OK
-# # with new weights: 1 2 OK
-# print(Chem.MolToSmiles(obs))
-# train_data = rdkit2pyg([obs])
-# valid_data = train_data
+MEMORIZATION = True
+train_guac_mols = mols_from_file("/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles", True)
+OBS_IDX = 1
+obs = train_guac_mols[OBS_IDX]
+print(Chem.MolToSmiles(obs))
+train_data = rdkit2pyg([obs])
+valid_data = train_data
 
 
 #! --- GET WEIGHTS ---
-# nweights = {
-#     'C':    0.03238897867833534,
-#     'Br':   14.044943820224718,
-#     'N':    0.21620219229022983,
-#     'O':    0.2177273617975571,
-#     'S':    1.6680567139282736,
-#     'Cl':   2.872737719046251,
-#     'F':    1.754693805930865,
-#     'P':    37.735849056603776,
-#     'I':    100.0,
-#     'B':    416.6666666666667,
-#     'Si':   454.54545454545456,
-#     'Se':   833.3333333333334
-# }
-# bweights = {
-#     BT.SINGLE:      4.663287337775892,
-#     BT.AROMATIC:    4.77780803722868,
-#     BT.DOUBLE:      34.74514436607484,
-#     BT.TRIPLE:      969.9321047526673
-# }
-
 nweights = {
-        'C': 0.03187551336784888,
-    'Br': 2.7110419759590325,
-        'N': 0.19573304627602645,
-        'O': 0.1969863033428892,
-        'S': 0.9813503849220039,
-    'Cl':1.353961677879625,
-    'F': 1.0133062952053178,
-    'P':  3.656765503466812,
-    'I':   4.61512051684126,
-    'B':   6.034683666227958,
-    'Si':  6.121495502161354,
-    'Se':  6.7266330027636645,
+    'C':    0.03238897867833534,
+    'Br':   14.044943820224718,
+    'N':    0.21620219229022983,
+    'O':    0.2177273617975571,
+    'S':    1.6680567139282736,
+    'Cl':   2.872737719046251,
+    'F':    1.754693805930865,
+    'P':    37.735849056603776,
+    'I':    100.0,
+    'B':    416.6666666666667,
+    'Si':   454.54545454545456,
+    'Se':   454.3333333333334
+}
+bweights = {
+    BT.SINGLE:      4.663287337775892,
+    BT.AROMATIC:    4.77780803722868,
+    BT.DOUBLE:      34.74514436607484,
+    BT.TRIPLE:      34.9321047526673
 }
 
-bweights = {
-    BT.SINGLE:  1.7340045253422367,
-    BT.AROMATIC:  1.75402437844415,
-    BT.DOUBLE:  3.576414437987407,
-    BT.TRIPLE:  6.878256542831836,
-}
+# nweights = {
+#         'C': 0.03187551336784888,
+#     'Br': 2.7110419759590325,
+#         'N': 0.19573304627602645,
+#         'O': 0.1969863033428892,
+#         'S': 0.9813503849220039,
+#     'Cl':1.353961677879625,
+#     'F': 1.0133062952053178,
+#     'P':  3.656765503466812,
+#     'I':   4.61512051684126,
+#     'B':   6.034683666227958,
+#     'Si':  6.121495502161354,
+#     'Se':  6.7266330027636645,
+# }
+
+# bweights = {
+#     BT.SINGLE:  1.7340045253422367,
+#     BT.AROMATIC:  1.75402437844415,
+#     BT.DOUBLE:  3.576414437987407,
+#     BT.TRIPLE:  6.878256542831836,
+# }
 
 
 nweights_list = [nweights[k] for k in atom2num]
@@ -470,21 +491,21 @@ edge_weights = torch.tensor(bweights_list)
 #! --- SET UP EXPERIMENT ---
 LRrnn, LRout = 1e-5, 1e-5
 wd = 10e-6
-bs_train = 64
-epoch, max_epoch = 1, 20000
+bs_train = 1
+epoch, max_epoch = 1, 15000
 device, cuda = setup_device()
 train_log, val_log = setup_loss_loggers()
-train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node, bs_train)
+train_dataset_loader, val_dataset_loader = create_train_val_dataloaders(train_data, valid_data, max_num_node, max_prev_node, bs_train=bs_train)
 
 rnn, output = get_generator()
 rnn.apply(weight_init)
 output.apply(weight_init)
 rnn.ad_hoc_init()
 output.ad_hoc_init()
-optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LRrnn, eps=1e-5, weight_decay=wd)
-optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LRout, eps=1e-5, weight_decay=wd)
-scheduler_rnn = None # torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
-scheduler_output = None # torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LRrnn)# , eps=1e-5, weight_decay=wd)
+optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LRout)# , eps=1e-5, weight_decay=wd)
+scheduler_rnn = torch.optim.lr_scheduler.OneCycleLR(optimizer_rnn, max_lr=LRrnn, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
+scheduler_output = torch.optim.lr_scheduler.OneCycleLR(optimizer_output, max_lr=LRout, steps_per_epoch=len(train_dataset_loader), epochs=max_epoch)
 
 
 print("start training")
@@ -498,22 +519,28 @@ gen_every = 20
 
 timer = TimeCode()
 try:
-    while epoch <= max_epoch:
+
+    if MEMORIZATION:
+        memorize(rnn=rnn, output=output, data_loader_=train_dataset_loader, optimizer_rnn=optimizer_rnn, optimizer_output=optimizer_output,
+                 node_weights=node_weights, edge_weights=edge_weights)
+
+
+
+    while False: # epoch <= max_epoch:
         loss_this_epoch, loss_edg, loss_nodes = train_rnn_epoch(rnn=rnn, output=output,
-                                                                data_loader_=train_dataset_loader,
-                                                                optimizer_rnn=optimizer_rnn, optimizer_output=optimizer_output,
-                                                                node_weights=node_weights, edge_weights=edge_weights)
+                                                                    data_loader_=train_dataset_loader,
+                                                                    optimizer_rnn=optimizer_rnn, optimizer_output=optimizer_output,
+                                                                    node_weights=node_weights, edge_weights=edge_weights)
+
         if scheduler_rnn != None: scheduler_rnn.step()
         if scheduler_output != None: scheduler_output.step()
+        train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+
         if epoch % gen_every == 0:
             for i in Ns: generate_mols(i)
-        if MEMORIZATION:
-            if epoch % 200:
-                train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
-        else:
-            train_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {loss_this_epoch:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
+
         if VALIDATION:
-            if epoch % 5:
+            if epoch % 5 == 0:
                 val_loss, loss_edg, loss_nodes = validate_rnn_epoch(rnn, output, val_dataset_loader, node_weights, edge_weights)
                 val_log.info(f'Epoch: {epoch}/{max_epoch}, sum of Loss: {val_loss:.8f}, loss edges {loss_edg:.8f}, loss nodes {loss_nodes:.8f}')
 
@@ -531,5 +558,4 @@ timer.compute_ellapsed()
 print(f"min val loss at epoch: {min_val_epoch}, nodes {min_val_loss_nodes}, edges {min_val_loss_edges}")
 Ns = [10]#, 60000, 110000, 160000, 210000]
 for i in Ns: generate_mols(i)
-
-# print(Chem.MolToSmiles(obs))
+if MEMORIZATION: print(Chem.MolToSmiles(obs))

@@ -13,6 +13,30 @@ import torch.nn.functional as F
 
 from torch_sparse import coalesce
 
+def validate_rdkit_mol(mol):
+    """
+    Sanitizes an RDKit molecules and returns True if the molecule is chemically
+    valid.
+    :param mol: an RDKit molecule
+    :return: True if the molecule is chemically valid, False otherwise
+    """
+    if Chem is None:
+        raise ImportError('`validate_rdkit_mol` requires RDkit.')
+    if len(Chem.GetMolFrags(mol)) > 1:
+        return False
+    try:
+        Chem.SanitizeMol(mol)
+        return True
+    except ValueError:
+        return False
+
+
+def keep_valid_mols(mols):
+    return [m for m in mols if (m and validate_rdkit_mol(m))]
+
+def read_smiles_from_file(pathfile):
+    with open(pathfile) as file:
+        return [line.rstrip() for line in file]
 
 def save_smiles(smiles, path, filename, ext='.txt'):
     '''
@@ -392,3 +416,5 @@ class Graph_sequence_sampler_pytorch(torch.utils.data.Dataset):
 
         # len_batch = number of nodes of current g
         return {'x': x_batch, 'y': y_batch, 'len': node_attr_list_copy.shape[0], 'x_node_attr': x_node_attr, 'y_node_attr': y_node_attr}
+
+
