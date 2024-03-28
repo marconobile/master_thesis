@@ -34,7 +34,7 @@ def setup():
     torch.manual_seed(manualSeed)
 
     cuda = True if torch.cuda.is_available() else False
-    device = torch.device("cuda:0" if cuda else "cpu")
+    device = torch.device("cuda:2" if cuda else "cpu")
 
     if cuda:
         torch.cuda.manual_seed(manualSeed)

@@ -5,7 +5,9 @@ from torch_geometric.data import Data
 
 def generate_single_obs(rnn, output, absence_net, device, args, max_num_node, max_prev_node, test_batch_size=1):
     # initialize hidden state
-    rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)
+    # rnn.hidden = rnn.init_hidden_rand(test_batch_size).to(device)
+    rnn.hidden = rnn.init_hidden(test_batch_size).to(device)
+
     # create node level token
     x_step = torch.ones((test_batch_size, 1, max_prev_node * args.edge_feature_dims + args.node_feature_dims),
                         requires_grad=False).to(device)
@@ -41,7 +43,7 @@ def generate_single_obs(rnn, output, absence_net, device, args, max_num_node, ma
         absence_net.hidden = torch.cat((h_to_pass, hidden_null_2), dim=0).to(device)
 
         # token Edge lvl - randn best result
-        output_x_step = torch.randn(test_batch_size, 1, 5, requires_grad=False).to(device)
+        output_x_step = torch.ones(test_batch_size, 1, 5, requires_grad=False).to(device)
         # token abs lvl - 0s as SOS
         abs_x_step = torch.zeros(test_batch_size, 1, 5, requires_grad=False).to(device)
 

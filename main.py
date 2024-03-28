@@ -12,7 +12,7 @@ from data.zinc_dataloader import load_zinc
 from random import shuffle
 from supervised_tools.supervised_training import supervised_training
 
-
+from rdkit import Chem
 
 
 from utils.data_utils import mols_from_file, rdkit2pyg
@@ -43,9 +43,12 @@ if __name__ == "__main__":
     #         dataset_test = False
 
     path = "/home/nobilm@usi.ch/master_thesis/guacamol/testdata.smiles"
-    dataset = rdkit2pyg(mols_from_file(path, True))
-    dataset = [dataset[0]]
+    mols = mols_from_file(path, True)
+    dataset = rdkit2pyg(mols)
+    OBS_IDX = 5
+    dataset = [dataset[OBS_IDX]]
 
 
     # if args.supervised:
     supervised_training(dataset, device, cuda, train_log, test_log, None, None)
+    print(Chem.MolToSmiles(mols[OBS_IDX]))

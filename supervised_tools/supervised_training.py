@@ -10,6 +10,64 @@ import pickle
 from rdkit import Chem
 import os
 
+
+def get_weights():
+    from rdkit.Chem.rdchem import BondType as BT
+
+    nweights = {
+    'C':    0.03238897867833534,
+    'Br':   14.044943820224718,
+    'N':    0.21620219229022983,
+    'O':    0.2177273617975571,
+    'S':    1.6680567139282736,
+    'Cl':   2.872737719046251,
+    'F':    1.754693805930865,
+    'P':    37.735849056603776,
+    'I':    100.0,
+    'B':    416.6666666666667,
+    'Si':   454.54545454545456,
+    'Se':   454.3333333333334
+}
+    bweights = {
+        BT.SINGLE:      4.663287337775892,
+        BT.AROMATIC:    4.77780803722868,
+        BT.DOUBLE:      34.74514436607484,
+        BT.TRIPLE:      34.9321047526673
+    }
+
+    # nweights = {
+    #         'C': 0.03187551336784888,
+    #     'Br': 2.7110419759590325,
+    #         'N': 0.19573304627602645,
+    #         'O': 0.1969863033428892,
+    #         'S': 0.9813503849220039,
+    #     'Cl':1.353961677879625,
+    #     'F': 1.0133062952053178,
+    #     'P':  3.656765503466812,
+    #     'I':   4.61512051684126,
+    #     'B':   6.034683666227958,
+    #     'Si':  6.121495502161354,
+    #     'Se':  6.7266330027636645,
+    # }
+
+    # bweights = {
+    #     BT.SINGLE:  1.7340045253422367,
+    #     BT.AROMATIC:  1.75402437844415,
+    #     BT.DOUBLE:  3.576414437987407,
+    #     BT.TRIPLE:  6.878256542831836,
+    # }
+
+    atom2num = {'Cl': 0, 'B': 1, 'F': 2, 'Si': 3, 'N': 4, 'S': 5, 'I': 6, 'O': 7, 'P': 8, 'Br': 9, 'Se': 10, 'C': 11}
+    bond2num = {BT.SINGLE: 0, BT.DOUBLE: 1, BT.TRIPLE: 2, BT.AROMATIC: 3}
+    nweights_list = [nweights[k] for k in atom2num]
+    bweights_list = [bweights[k] for k in bond2num]
+    bweights_list.insert(0, 1500)
+    # bweights_list.insert(0, 1.7340045253422367+6.878256542831836)
+    node_weights = torch.tensor(nweights_list)
+    edge_weights = torch.tensor(bweights_list)
+    return node_weights, edge_weights
+
+
 def save_smiles(smiles, path, filename, ext='.txt'):
     '''
     saves smiles in a file at path
@@ -43,7 +101,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
     args = Args()
     max_num_node = args.max_num_node
     max_prev_node = args.max_prev_node
-    LR = 5e-4
+    LR = 3e-5
 
     train_dataset_loader, _ = create_train_val_dataloaders(dataset, max_num_node,
                                                            max_prev_node)
@@ -59,11 +117,18 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
     print("#N. batches in train_dataset_loader: ", len(train_dataset_loader))
     print('Node_weights', node_weights, '\nEdge_weights', edge_weights)
 
+    # node_weights, edge_weights = get_weights()
+
+    node_weights = torch.ones_like(node_weights)
+    edge_weights = torch.ones_like(edge_weights)
+    # edge_weights[0] = 100  # ad-hoc choice
+
+
     # get models:
     rnn, output, absence_net = get_generator()
-    optimizer_abs_net = torch.optim.Adam(list(absence_net.parameters()), lr=LR, weight_decay=5e-5)
-    optimizer_rnn = torch.optim.Adam(list(rnn.parameters()), lr=LR, weight_decay=5e-5)
-    optimizer_output = torch.optim.Adam(list(output.parameters()), lr=LR, weight_decay=5e-5)
+    optimizer_abs_net = torch.optim.RMSprop(list(absence_net.parameters()), lr=LR)#, weight_decay=5e-5)
+    optimizer_rnn = torch.optim.RMSprop(list(rnn.parameters()), lr=LR)#, weight_decay=5e-5)
+    optimizer_output = torch.optim.RMSprop(list(output.parameters()), lr=LR)#, weight_decay=5e-5)
 
     print('Networks skeletons:')
     print(rnn)
@@ -80,8 +145,8 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
     print('Nets structures loaded correctly! Training... ')
 
     epoch = 1  # starting epoch
-    max_epoch = 3001
-    patience = 3000
+    max_epoch = 4001
+    patience = max_epoch -1
     counter_test = 0
 
     while epoch <= max_epoch:
@@ -119,7 +184,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
             output.eval()
             absence_net.eval()
 
-            n_of_graph_to_be_generated = 1600
+            n_of_graph_to_be_generated = 10
             print(f'Generating {n_of_graph_to_be_generated} graphs for epoch', epoch)
 
             to_draw = []
@@ -131,7 +196,7 @@ def supervised_training(dataset, device, cuda, train_log, test_log, qm9_smiles, 
 
             mols_ = pyg2rdkit(to_draw)
             smiles_ = [Chem.MolToSmiles(m) for m in mols_]
-            save_smiles(smiles_, ".", "test", "smiles")
+            save_smiles(smiles_, ".", "test")
             # rdkit_mols, mols_smiles = mols_smiles_plots(to_draw, './figures/FIG_epoch_' + str(epoch))
             # mols_txt(epoch, rdkit_mols, mols_smiles, qm9_smiles)
 

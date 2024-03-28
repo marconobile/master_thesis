@@ -16,7 +16,7 @@ def get_generator():
     out_edge_level = hidden_size_rnn_output
 
     rnn = GRU_plain(#input_size=args.node_feature_dims + args.edge_feature_dims * args.max_prev_node,
-                    input_size=args.node_feature_dims + args.edge_feature_dims * 36, 
+                    input_size=args.node_feature_dims + args.edge_feature_dims * args.max_prev_node,
                     embedding_size=embedding_size_rnn,
                     hidden_size=hidden_size_rnn, num_layers=num_layers, has_input=True,
                     has_output=True, output_size=hidden_size_rnn_output, node_lvl=True,
@@ -45,7 +45,7 @@ class GRU_plain(torch.nn.Module):
         self.node_lvl = node_lvl
         self.out_middle_layer = out_middle_layer
         self.cuda = True if torch.cuda.is_available() else False
-        self.device = torch.device("cuda:0" if self.cuda else "cpu")
+        self.device = torch.device("cuda:2" if self.cuda else "cpu")
         self.args = Args()
 
         if has_input:
